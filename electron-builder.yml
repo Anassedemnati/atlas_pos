@@ -1,0 +1,27 @@
+appId: ma.atlaspos.app
+productName: Atlas POS
+directories:
+  output: release
+  buildResources: build
+files:
+  - out/**/*
+  - package.json
+# better-sqlite3 and serialport ship N-API prebuilds: never rebuild native modules.
+npmRebuild: false
+asar: true
+asarUnpack:
+  - "**/*.node"
+win:
+  target:
+    - target: nsis
+      arch: x64
+nsis:
+  oneClick: false
+  perMachine: true
+  allowToChangeInstallationDirectory: true
+  artifactName: AtlasPOS-Setup-${version}.exe
+linux:
+  target:
+    - AppImage
+    - deb
+  category: Office
