@@ -21,9 +21,11 @@ export interface Order {
   updatedAt: string
   note: string
   discount: Discount | null
-  /** A manager's percentage approval of a 'pct' ticket discount (bp), 0 without one (see migration 005). */
+  /** The highest own-limit percentage (bp) a limited session legitimately used on the order; never reduced (see migration 005). */
+  ownGrantBp: number
+  /** A manager's ticket percentage (bp) beyond staff authority, only with a 'pct' ticket discount; 0 without one (see migration 005). */
   approvedTicketBp: number
-  /** A manager's budget (centimes) for amount discounts and line discounts, 0 without one (see migration 005). */
+  /** A manager's budget (centimes) beyond everything else the order allows, in increments; 0 without one (see migration 005). */
   approvedCents: number
   lines: OrderLine[]
 }

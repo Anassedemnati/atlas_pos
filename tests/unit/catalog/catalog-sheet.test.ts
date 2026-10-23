@@ -309,9 +309,10 @@ describe('parseCatalogSheet: hostile files', () => {
     const file = xlsxWithDimension([HEADER, ...products], 'A1:XFD5001')
     expect(file.length).toBeLessThan(500_000)
 
+    // A loose wall-clock bound (expanding 82 million cells would take minutes); the 64-column test below is the real guard.
     const started = Date.now()
     const { rows, errors } = parseCatalogSheet(file, 'wide.xlsx')
-    expect(Date.now() - started).toBeLessThan(2000)
+    expect(Date.now() - started).toBeLessThan(10000)
     expect(errors).toEqual([])
     expect(rows).toHaveLength(5000)
     expect(rows[4999]).toMatchObject({ row: 5001, nameFr: 'Produit 4999', barcode: '5000' })

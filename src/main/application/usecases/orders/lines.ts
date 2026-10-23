@@ -8,6 +8,7 @@ import { parseInput } from '../catalog/input'
 import { attemptSync, invalidInput } from '../users/outcome'
 import {
   activeLine,
+  applyApprovals,
   approvalsOf,
   assertNotBelowPaid,
   checkDiscountLimit,
@@ -37,7 +38,7 @@ export interface LineUseCases {
    * A line the kitchen has not received yet (`line_sent` otherwise: void it, or add a line). Moves the
    * stock. The quantity changes what the order's discounts are measured on, so the order's discount is
    * checked again: `discount_over_limit` unless `overrideToken` (see `setLineDiscount`; a lower quantity
-   * approved that way is recorded on the order).
+   * approved that way adds what it takes off beyond the allowance to the order's budget).
    */
   setLineQty(session: Session, orderId: string, lineId: string, qtyMilli: number, overrideToken?: OverrideToken): Result<OrderDto>
   /**
@@ -145,16 +146,15 @@ export function createLineUseCases(ctx: Sales): LineUseCases {
   }
 
   /**
-   * Checks the order once one of its lines becomes `changed` (a base change, against the approvals it
-   * has; when it `shrinks` the base, a token's approval is recorded on it) and settles its discount check
-   * (the token, if needed, is spent here: every other check of the action has passed). Returns the audit data.
+   * Checks the order once one of its lines becomes `changed` (a base change, against the grants it has;
+   * when it `shrinks` the base, what it leaves is recorded on it) and settles its discount check (the
+   * token, if needed, is spent here: every other check of the action has passed). Returns the audit data.
    */
   function recheck(session: Session, order: StoredOrder, changed: StoredLine, shrinks: boolean, token: OverrideToken | undefined) {
     const lines = order.lines.map((l) => (l.id === changed.id ? changed : l))
     assertNotBelowPaid(lines, order.discount, order.payments)
     const gate = discountGate(token)
-    const check = checkDiscountLimit(session, gate, { lines, discount: order.discount }, approvalsOf(order), shrinks)
-    order.approvedCents = check.approvals.approvedCents
+    applyApprovals(order, checkDiscountLimit(session, gate, { lines, discount: order.discount }, approvalsOf(order), shrinks).approvals)
     return settleDiscount(ctx, gate)
   }
 

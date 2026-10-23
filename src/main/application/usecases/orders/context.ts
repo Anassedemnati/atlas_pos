@@ -74,6 +74,7 @@ export function toOrderDto(order: StoredOrder): OrderDto {
     updatedAt: order.updatedAt,
     note: order.note,
     discount: order.discount,
+    ownGrantBp: order.ownGrantBp,
     approvedTicketBp: order.approvedTicketBp,
     approvedCents: order.approvedCents,
     lines: order.lines.map((line) => ({ ...line, netCents: nets.get(line.id) ?? 0 })),
@@ -133,18 +134,34 @@ export interface DiscountGate {
 
 export const discountGate = (token?: OverrideToken): DiscountGate => ({ token, checks: [] })
 
-/** What a manager approved on an order, beyond the acting user's own limit (migration 005). */
+/**
+ * The grants an order carries (migration 005), each recorded by its grantor only and added up into the
+ * allowance: staff authority, a manager's ticket percentage and a manager's budget.
+ */
 export interface Approvals {
-  /** A percentage approval, only for a 'pct' ticket discount; it follows the bill. */
+  /** The highest own-limit percentage a limited session legitimately used on the order; never reduced. */
+  ownGrantBp: number
+  /** A manager's ticket percentage beyond the staff authority in force, only with a 'pct' ticket discount; it follows the bill. */
   approvedTicketBp: number
-  /** An absolute budget for amount discounts (ticket 'amount') and all line discounts. */
+  /** A manager's budget in centimes beyond everything else the order allows, in increments; it never grows with the bill. */
   approvedCents: number
 }
 
 export const approvalsOf = (order: Approvals): Approvals => ({
+  ownGrantBp: order.ownGrantBp,
   approvedTicketBp: order.approvedTicketBp,
   approvedCents: order.approvedCents
 })
+
+/** Writes `approvals` on the order (or order copy) about to be stored. */
+export function applyApprovals(order: Approvals, approvals: Approvals): void {
+  order.ownGrantBp = approvals.ownGrantBp
+  order.approvedTicketBp = approvals.approvedTicketBp
+  order.approvedCents = approvals.approvedCents
+}
+
+/** A session holding `order.discount.override` is not limited; every other one is, by its `maxDiscountBp`. */
+export const isLimited = (session: Session): boolean => !hasPermission(session, 'order.discount.override')
 
 /**
  * The money an order's discounts take off, measured on the active lines that are not free (free items
@@ -171,42 +188,83 @@ export function discountFigures(lines: OrderLine[], discount: Discount | null): 
   return figures
 }
 
-/** `bp` of `gross`, rounded to the centime, plus the rounding centime of each discounted line. */
-export const pctTermCents = (bp: number, figures: DiscountFigures): number =>
-  Math.round((bp * figures.gross) / 10000) + figures.discountedLines
+/** `bp` of the figures' gross, rounded to the centime. */
+const pctCents = (bp: number, figures: DiscountFigures): number => Math.round((bp * figures.gross) / 10000)
 
-/**
- * The most an order state may take off for `session`: its own limit as a share of the gross, or what a
- * manager approved (the ticket percentage as a share of the gross, plus the budget in centimes),
- * whichever is more.
- */
-export function discountLimitCents(session: Session, approvals: Approvals, figures: DiscountFigures): number {
-  return Math.max(
-    pctTermCents(session.maxDiscountBp, figures),
-    pctTermCents(approvals.approvedTicketBp, figures) + approvals.approvedCents
-  )
+/** ceil(a / b) for safe integers, exact (b > 0). */
+const ceilDiv = (a: number, b: number): number => {
+  const q = Math.floor(a / b)
+  return q * b < a ? q + 1 : q
 }
 
+/**
+ * The staff percentage in force for `session` on an order: its own limit, or what a limited session
+ * already used on the order legitimately, whichever is more. An unlimited session brings no percentage of
+ * its own (its authority is not a limit): only `ownGrantBp` counts for it.
+ */
+export const staffBpInForce = (session: Session, approvals: Approvals): number =>
+  Math.max(isLimited(session) ? session.maxDiscountBp : 0, approvals.ownGrantBp)
+
+const allowanceFor = (staffBp: number, approvals: Approvals, figures: DiscountFigures): number =>
+  pctCents(staffBp, figures) + figures.discountedLines + pctCents(approvals.approvedTicketBp, figures) + approvals.approvedCents
+
+/**
+ * The most an order state may take off for `session`, added up: the staff percentage in force as a
+ * share of the gross, a rounding centime per discounted line, the manager's ticket percentage as a share
+ * of the gross, and the manager's budget.
+ */
+export const allowanceCents = (session: Session, approvals: Approvals, figures: DiscountFigures): number =>
+  allowanceFor(staffBpInForce(session, approvals), approvals, figures)
+
+/** What the order's own grants allow, no session's limit added: how a piece of a split is judged. */
+export const grantedCents = (approvals: Approvals, figures: DiscountFigures): number =>
+  allowanceFor(approvals.ownGrantBp, approvals, figures)
+
+/** Whether the order carries anything the budget covers: an amount ticket discount or a line discount. */
+const carriesBudgeted = (lines: OrderLine[], discount: Discount | null): boolean =>
+  discount?.kind === 'amount' || activeLines(lines).some((l) => !l.free && l.discount !== null)
+
+/** Rule 5: once no line discount and no amount ticket discount is left, the budget is 0. */
+const budgetKept = (approvals: Approvals, state: { lines: OrderLine[]; discount: Discount | null }): Approvals =>
+  carriesBudgeted(state.lines, state.discount) ? approvals : { ...approvals, approvedCents: 0 }
+
+/**
+ * Rule 1: the staff authority a limited session's pass without a token records: the state's percentage
+ * of the gross (rounded up), capped at the session's own limit, never less than before.
+ */
+const ownGrantAfter = (session: Session, approvals: Approvals, figures: DiscountFigures): number => {
+  const used = figures.gross > 0 ? ceilDiv(figures.discountCents * 10000, figures.gross) : 0
+  return Math.max(approvals.ownGrantBp, Math.min(session.maxDiscountBp, used))
+}
+
+/**
+ * Rules 2 and 3: a manager's pass adds to the budget what the state takes off beyond the allowance the
+ * order already gives `session` (the acting session's own limit counts for a limited one, only
+ * `ownGrantBp` for an unlimited one): a no-op, a removal or a covered change adds 0.
+ */
+const budgetRaised = (session: Session, approvals: Approvals, figures: DiscountFigures): Approvals => ({
+  ...approvals,
+  approvedCents: approvals.approvedCents + Math.max(0, figures.discountCents - allowanceCents(session, approvals, figures))
+})
+
 export interface DiscountCheck {
-  /** Over the limit for a limited session: the action goes on only if the gate's token is spent. */
+  /** Over the allowance for a limited session: the action goes on only if the gate's token is spent. */
   over: boolean
-  /**
-   * What the order carries after the action: `approvals` as given, or, for a change that `shrinks` and
-   * is over the limit (so it goes through only on the gate's token), the budget raised to cover the
-   * state the manager approved, so the manager is not asked again at close for it.
-   */
+  /** What the order carries after the action (see `checkDiscountLimit`). */
   approvals: Approvals
 }
 
 /**
  * Records the check of one order state (its lines and ticket discount as they will be) under `approvals`:
- * its discount must stay within `discountLimitCents`. A session holding `order.discount.override` is not
- * limited. `shrinks` marks a change that shrinks what the discounts are measured on (a void, a lower
- * quantity, a free item, lines moved out, what a split leaves): over the limit, its token-approved state
- * is recorded (see `DiscountCheck`). A change that grows the bill (a line added, a higher quantity, a
- * merge, lines moved in) or closes it never records anything, nor does a manager's own base change:
- * a budget is only ever what a manager approved for a limited user. A check that is over without a
- * token makes `settleDiscount` refuse the action, so raised approvals are never written.
+ * its discount must stay within `allowanceCents`. A session holding `order.discount.override` is not
+ * limited. A change that grows the bill (a line added, a higher quantity, a merge, lines moved in) or
+ * closes it never records anything: `approvals` come back as given. `shrinks` marks a change that shrinks
+ * what the discounts are measured on (a void, a lower quantity, a free item, lines moved out, what a
+ * split leaves); what it leaves is recorded: a budget nothing covers any more is cleared (rule 5), a
+ * limited session's pass within the allowance records its staff authority (rule 1), its pass on the
+ * gate's token adds to the budget what the state takes off beyond the allowance (rule 3), and an
+ * unlimited session's own base change records nothing. A check that is over without a token makes
+ * `settleDiscount` refuse the action, so nothing raised is written.
  */
 export function checkDiscountLimit(
   session: Session,
@@ -216,49 +274,56 @@ export function checkDiscountLimit(
   shrinks = false
 ): DiscountCheck {
   const figures = discountFigures(state.lines, state.discount)
-  const limitCents = discountLimitCents(session, approvals, figures)
-  const over = figures.discountCents > limitCents && !hasPermission(session, 'order.discount.override')
+  const limitCents = allowanceCents(session, approvals, figures)
+  const over = figures.discountCents > limitCents && isLimited(session)
   gate.checks.push({ discountCents: figures.discountCents, limitCents, over })
-  if (!over || !shrinks) return { over, approvals }
-  const uncovered = figures.discountCents - Math.round((approvals.approvedTicketBp * figures.gross) / 10000)
-  return { over, approvals: { ...approvals, approvedCents: Math.max(approvals.approvedCents, uncovered) } }
+  if (!shrinks) return { over, approvals }
+  const kept = budgetKept(approvals, state)
+  if (!isLimited(session)) return { over, approvals: kept }
+  if (!over) return { over, approvals: { ...kept, ownGrantBp: ownGrantAfter(session, kept, figures) } }
+  return { over, approvals: budgetRaised(session, kept, figures) }
 }
 
-/** Whether the order carries anything the budget covers: an amount ticket discount or a line discount. */
-const carriesBudgeted = (lines: OrderLine[], discount: Discount | null): boolean =>
-  discount?.kind === 'amount' || activeLines(lines).some((l) => !l.free && l.discount !== null)
+/** Rule 5 for the setters: a ticket discount that is no longer a percentage leaves no ticket percentage approval. */
+const ticketKept = (approvals: Approvals, after: { discount: Discount | null }, change: 'ticket' | 'line'): Approvals =>
+  change === 'ticket' && after.discount?.kind !== 'pct' ? { ...approvals, approvedTicketBp: 0 } : approvals
 
 /**
- * The approvals an order carries once its ticket discount (`change` 'ticket') or a line discount
- * ('line') was set, changed or removed. Without a manager (`viaManager` false), the ticket percentage
- * approval follows a 'pct' ticket discount but never exceeds what the session may give on its own, or
- * what was approved before; the budget is untouched, and cleared once nothing it covers is left. With a
- * manager (an unlimited session, or a token the gate spends), the ticket percentage is approved as set
- * and the budget grows to cover whatever the ticket percentage does not. Base changes (lines added,
- * quantities, voids, free items, moves, merges, splits, closing) never go through here: they are only
- * checked, and only a shrinking one passed on a token raises the budget (`checkDiscountLimit`).
+ * What the order carries once a limited `session` set its ticket discount (`change` 'ticket') or a line
+ * discount ('line') within the allowance, without a token (rules 1 and 5): a budget nothing covers any
+ * more and a ticket percentage approval without a 'pct' ticket discount are cleared, and the staff
+ * authority used is recorded. Nothing else changes.
  */
-export function approvalsAfterDiscount(
+export function approvalsAfterOwnDiscount(
   previous: Approvals,
   session: Session,
   after: { lines: OrderLine[]; discount: Discount | null },
-  change: 'ticket' | 'line',
-  viaManager: boolean
+  change: 'ticket' | 'line'
 ): Approvals {
-  let approvedTicketBp = previous.approvedTicketBp
-  if (change === 'ticket') {
-    const ticket = after.discount
-    if (ticket?.kind !== 'pct') approvedTicketBp = 0
-    else if (viaManager) approvedTicketBp = ticket.bp
-    else approvedTicketBp = Math.min(ticket.bp, Math.max(session.maxDiscountBp, previous.approvedTicketBp))
+  const kept = ticketKept(budgetKept(previous, after), after, change)
+  if (!isLimited(session)) return kept
+  return { ...kept, ownGrantBp: ownGrantAfter(session, kept, discountFigures(after.lines, after.discount)) }
+}
+
+/**
+ * What the order carries once a manager passed the discount `session` set (an unlimited session, or a
+ * token the gate spends), rules 2 and 5. After the clearing of rule 5: a 'pct' ticket discount of `B`
+ * approves the ticket percentage beyond the staff percentage in force, `B − staffBpInForce`, never less
+ * than before; any other setter adds to the budget what the state takes off beyond the allowance the
+ * order already gives `session`. No staff authority is recorded by a token pass.
+ */
+export function approvalsAfterApprovedDiscount(
+  previous: Approvals,
+  session: Session,
+  after: { lines: OrderLine[]; discount: Discount | null },
+  change: 'ticket' | 'line'
+): Approvals {
+  const kept = ticketKept(budgetKept(previous, after), after, change)
+  if (change === 'ticket' && after.discount?.kind === 'pct') {
+    const beyondStaff = after.discount.bp - staffBpInForce(session, kept)
+    return { ...kept, approvedTicketBp: Math.max(kept.approvedTicketBp, beyondStaff) }
   }
-  const budgeted = carriesBudgeted(after.lines, after.discount)
-  let approvedCents = budgeted ? previous.approvedCents : 0
-  if (budgeted && viaManager) {
-    const figures = discountFigures(after.lines, after.discount)
-    approvedCents = Math.max(approvedCents, figures.discountCents - Math.round((approvedTicketBp * figures.gross) / 10000))
-  }
-  return { approvedTicketBp, approvedCents }
+  return budgetRaised(session, kept, discountFigures(after.lines, after.discount))
 }
 
 /**

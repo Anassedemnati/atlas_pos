@@ -18,10 +18,9 @@ import {
   checkDiscountLimit,
   discountFigures,
   discountGate,
-  discountLimitCents,
+  grantedCents,
   loadOrder,
   logOrder,
-  pctTermCents,
   settleDiscount,
   type Approvals,
   type DiscountGate,
@@ -54,11 +53,12 @@ export interface CloseUseCases {
    * transaction (a group not paid in full closes none). The ticket discount is shared once over the
    * whole bill. Lines in no group stay on the order with what is left of the ticket discount (as an
    * amount); an order left without an active line is cancelled. Refused with `has_payments` once the
-   * order has taken a payment. Each part, and what is left, inherits the order's ticket percentage
-   * approval; the budget is shared out, parts first and in order, each piece taking what its discount
-   * needs beyond the session's own limit and the ticket percentage, until the budget runs out. Each is
-   * then checked against the session; one over the limit refuses the whole split
-   * (`discount_over_limit`) unless `overrideToken`, spent last.
+   * order has taken a payment. Each part, and what is left, inherits the order's staff authority and
+   * ticket percentage approval; the budget is partitioned, parts first and in order, each piece taking
+   * what its discount needs beyond those stored grants (not the acting session's limit, so a manager's
+   * split leaves the budget where it is needed), until the budget runs out. Each piece is then checked
+   * against the session; one over the allowance refuses the whole split (`discount_over_limit`) unless
+   * `overrideToken`, spent last.
    */
   splitAndClose(session: Session, orderId: string, groups: SplitGroup[], overrideToken?: OverrideToken): Result<TicketDto[]>
 }
@@ -173,18 +173,17 @@ export function createCloseUseCases(ctx: Sales): CloseUseCases {
       const shareOf = (line: StoredLine): number => priced.get(line.id)?.ticketDiscount ?? 0
       const asAmount = (cents: number) => (order.discount ? { kind: 'amount' as const, cents, reason: order.discount.reason } : null)
       /**
-       * The approvals of a piece (a part, then what is left): the ticket percentage is inherited (its share
-       * follows the lines). A piece whose discount the session's own limit and that percentage do not cover
-       * takes of the budget what the percentage leaves uncovered (the budget stacks on the percentage, not
-       * on the own limit), out of what the pieces before it left. The pieces together never hold more
-       * than the order did.
+       * The grants of a piece (a part, then what is left): the staff authority and the ticket percentage
+       * are inherited (percentages follow the lines). A piece takes of the budget what its discount needs
+       * beyond those two, out of what the pieces before it left. The pieces together never hold more than
+       * the order did. The need is judged by the piece's stored grants, not the acting session's limit: a
+       * split run by a manager still hands the budget to the piece that carries the discount.
        */
       let budgetLeft = order.approvedCents
       const approvalsOfPiece = (lines: StoredLine[], discount: Discount | null): Approvals => {
         const figures = discountFigures(lines, discount)
-        const inherited = { approvedTicketBp: order.approvedTicketBp, approvedCents: 0 }
-        const needs = figures.discountCents > discountLimitCents(session, inherited, figures)
-        const share = needs ? Math.min(budgetLeft, figures.discountCents - pctTermCents(order.approvedTicketBp, figures)) : 0
+        const inherited: Approvals = { ownGrantBp: order.ownGrantBp, approvedTicketBp: order.approvedTicketBp, approvedCents: 0 }
+        const share = Math.min(budgetLeft, Math.max(0, figures.discountCents - grantedCents(inherited, figures)))
         budgetLeft -= share
         return { ...inherited, approvedCents: share }
       }

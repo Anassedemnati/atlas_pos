@@ -79,9 +79,11 @@ export interface OrderDto {
   updatedAt: string
   note: string
   discount: DiscountDto | null
-  /** A manager's percentage approval of a 'pct' ticket discount (bp); 0 without one. */
+  /** The highest own-limit percentage (bp) a limited session legitimately used on the order; never reduced. */
+  ownGrantBp: number
+  /** A manager's ticket percentage (bp) beyond staff authority, only with a 'pct' ticket discount; 0 without one. */
   approvedTicketBp: number
-  /** A manager's budget (centimes) for amount discounts and line discounts; 0 without one. */
+  /** A manager's budget (centimes) beyond everything else the order allows, recorded in increments; 0 without one. */
   approvedCents: number
   /** Every line, void ones included, by `seq`. */
   lines: OrderLineDto[]

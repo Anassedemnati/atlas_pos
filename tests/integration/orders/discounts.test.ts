@@ -32,8 +32,8 @@ describe('orders: discounts, free items, voids, payments', () => {
     const dto = ok(h.orders.setLineDiscount(h.cashier, order.id, lineId, pct(2000), token))
     expect(dto.totals.totalCents).toBe(5600)
     expect(h.eventRows('order.discount').at(-1)).toMatchObject({ data: { overriddenBy: h.seeded.users.amine } })
-    // The 14,00 the manager approved is the order's budget.
-    expect(dto).toMatchObject({ approvedTicketBp: 0, approvedCents: 1400 })
+    // The 14,00 the manager approved beyond the cashier's 7,00 and a centime is the order's budget.
+    expect(dto).toMatchObject({ ownGrantBp: 0, approvedTicketBp: 0, approvedCents: 699 })
     // One use only.
     expect(code(h.orders.setTicketDiscount(h.cashier, order.id, pct(2000), token))).toBe('forbidden')
   })
@@ -166,7 +166,7 @@ describe('orders: discounts, free items, voids, payments', () => {
     it('a manager is not limited, and the approval lets others carry on with the order', () => {
       const o = twoTajines()
       const dto = ok(h.orders.setTicketDiscount(h.manager, o.id, { kind: 'pct', bp: 3000, reason: 'x' }))
-      expect(dto).toMatchObject({ approvedTicketBp: 3000, approvedCents: 0, totals: { totalCents: 9800 } })
+      expect(dto).toMatchObject({ ownGrantBp: 0, approvedTicketBp: 3000, approvedCents: 0, totals: { totalCents: 9800 } })
       ok(h.orders.addLine(h.waiter, o.id, { productId: h.fx.products.the, qtyMilli: 1000, modifierIds: [], note: '' }))
       ok(h.orders.addPayment(h.waiter, o.id, { methodCode: 'card', amountCents: ok(h.orders.getOrder(h.waiter, o.id)).dueCents }))
       expect(ok(h.tickets.closeOrder(h.waiter, o.id)).label).toBe('000001')
@@ -181,8 +181,8 @@ describe('orders: discounts, free items, voids, payments', () => {
       })
       const token = ok(await h.users.authorizeOverride(PINS.amine, 'order.discount.override'))
       const dto = ok(h.orders.voidLine(h.cashier, o.id, o.lines[1]!, '', token))
-      // The state the manager approved (14,00 off 70,00) is recorded as the order's budget.
-      expect(dto).toMatchObject({ approvedTicketBp: 0, approvedCents: 1400, totals: { totalCents: 5600 } })
+      // What the state the manager approved (14,00 off 70,00) takes off beyond the cashier's 7,01 is the order's budget.
+      expect(dto).toMatchObject({ ownGrantBp: 1000, approvedTicketBp: 0, approvedCents: 699, totals: { totalCents: 5600 } })
       expect(h.eventRows('order.line_void').at(-1)).toMatchObject({ data: { overriddenBy: h.seeded.users.amine } })
     })
 
@@ -213,22 +213,23 @@ describe('orders: discounts, free items, voids, payments', () => {
         ok: false,
         error: { code: 'discount_over_limit', params: { discountCents: 1015, limitCents: 701 } }
       })
-      // The cashier (10 %) may go on with the order; a waiter (0 %) may not, a line discount approves nothing.
+      // The cashier's 10 % stays with the order as staff authority: a waiter (0 %) may go on with it too.
       ok(h.orders.addLine(h.cashier, order.id, { productId: h.fx.products.the, qtyMilli: 1000, modifierIds: [], note: '' }))
       const dto = ok(h.orders.getOrder(h.cashier, order.id))
-      expect(code(h.orders.voidLine(h.waiter, order.id, dto.lines[1]!.id, ''))).toBe('discount_over_limit')
-      ok(h.orders.voidLine(h.cashier, order.id, dto.lines[1]!.id, ''))
+      expect(dto.ownGrantBp).toBe(1000)
+      expect(ok(h.orders.voidLine(h.waiter, order.id, dto.lines[1]!.id, '')).totals.totalCents).toBe(6300)
     })
 
     it('closing re-checks the discount with the closing session', async () => {
-      ok(h.orders.setLineDiscount(h.cashier, order.id, lineId, pct(1000)))
-      ok(h.orders.addPayment(h.cashier, order.id, { methodCode: 'card', amountCents: 6300 }))
+      // 50 % on the cashier's token: 40 % approved beyond the cashier's 10 %, which a waiter (0 %) does not bring.
+      ok(h.orders.setLineDiscount(h.cashier, order.id, lineId, pct(5000), ok(await h.users.authorizeOverride(PINS.amine, 'order.discount.override'))))
+      ok(h.orders.addPayment(h.cashier, order.id, { methodCode: 'card', amountCents: 3500 }))
       expect(h.tickets.closeOrder(h.waiter, order.id)).toMatchObject({
         ok: false,
-        error: { code: 'discount_over_limit', params: { discountCents: 700, limitCents: 1 } }
+        error: { code: 'discount_over_limit', params: { discountCents: 3500, limitCents: 2800 } }
       })
       const token = ok(await h.users.authorizeOverride(PINS.amine, 'order.discount.override'))
-      expect(ok(h.tickets.closeOrder(h.waiter, order.id, token)).totalCents).toBe(6300)
+      expect(ok(h.tickets.closeOrder(h.waiter, order.id, token)).totalCents).toBe(3500)
       expect(h.eventRows('ticket.closed').at(-1)).toMatchObject({ data: { overriddenBy: h.seeded.users.amine } })
     })
   })

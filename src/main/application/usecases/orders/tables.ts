@@ -7,6 +7,7 @@ import type { Tx } from '../../../infrastructure/db/uow'
 import { AppErrorException } from '../../errors'
 import { attemptSync, invalidInput } from '../users/outcome'
 import {
+  applyApprovals,
   assertNotBelowPaid,
   checkDiscountLimit,
   discountGate,
@@ -25,17 +26,17 @@ export interface TableUseCases {
    * emptied order is cancelled. Refused with `ticket_discount_set` while `fromOrderId` has a ticket
    * discount (remove it first: it was given on that bill, not on the other), and with `below_paid` when
    * the merged bill, under the target's ticket discount, would be less than what both were paid. The
-   * merged order keeps the target's ticket percentage approval and the two budgets added up, and its
-   * discount is checked against the session and those (`discount_over_limit` unless `overrideToken`);
-   * growing the bill records nothing.
+   * merged order takes the higher staff authority of the two, keeps the target's ticket percentage
+   * approval and adds the two budgets up, and its discount is checked against the session and those
+   * (`discount_over_limit` unless `overrideToken`); growing the bill records nothing.
    */
   mergeTables(session: Session, fromOrderId: string, intoOrderId: string, overrideToken?: OverrideToken): Result<OrderDto>
   /**
    * Moves active lines to another open order (they keep their kitchen state). `below_paid` if what stays
-   * would be under what the source order was already paid. Each order keeps its own approvals, except
-   * that the moved lines' line discounts travel with them out of the source's budget (at most what it
-   * holds) into the target's; both orders' discounts are then checked (`discount_over_limit` unless
-   * `overrideToken`, spent once for both; its approval is recorded on the source, which shrinks).
+   * would be under what the source order was already paid. Each order keeps its own grants, except that
+   * the moved lines' line discounts travel with them out of the source's budget (at most what it holds)
+   * into the target's; both orders' discounts are then checked (`discount_over_limit` unless
+   * `overrideToken`, spent once for both; what the source, which shrinks, is left with is recorded on it).
    * Returns the source order.
    */
   moveLines(session: Session, fromOrderId: string, lineIds: string[], toOrderId: string, overrideToken?: OverrideToken): Result<OrderDto>
@@ -79,8 +80,14 @@ export function createTableUseCases(ctx: Sales): TableUseCases {
       // capped at its lines): the merged bill must still cover what both tables already paid.
       const mergedLines = [...into.lines, ...from.lines]
       assertNotBelowPaid(mergedLines, into.discount, [...into.payments, ...from.payments])
-      // The target's ticket percentage approval stays; the budgets add up (the source's covered its lines).
-      const merged = { ...into, covers: into.covers + from.covers, approvedCents: into.approvedCents + from.approvedCents }
+      // The higher staff authority; the target's ticket percentage approval; the budgets add up (the
+      // source's covered its lines).
+      const merged = {
+        ...into,
+        covers: into.covers + from.covers,
+        ownGrantBp: Math.max(into.ownGrantBp, from.ownGrantBp),
+        approvedCents: into.approvedCents + from.approvedCents
+      }
       const gate = discountGate(token)
       checkDiscountLimit(session, gate, { lines: mergedLines, discount: into.discount }, merged)
       const audit = settleDiscount(ctx, gate)
@@ -121,8 +128,8 @@ export function createTableUseCases(ctx: Sales): TableUseCases {
       const source = { ...from, approvedCents: from.approvedCents - carried }
       const target = { ...to, approvedCents: to.approvedCents + carried }
       const gate = discountGate(token)
-      // Moving out shrinks the source (a token's approval is recorded there); moving in grows the target.
-      source.approvedCents = checkDiscountLimit(session, gate, { lines: staying, discount: from.discount }, source, true).approvals.approvedCents
+      // Moving out shrinks the source (what it is left with is recorded there); moving in grows the target.
+      applyApprovals(source, checkDiscountLimit(session, gate, { lines: staying, discount: from.discount }, source, true).approvals)
       checkDiscountLimit(session, gate, { lines: [...to.lines, ...moving], discount: to.discount }, target)
       const audit = settleDiscount(ctx, gate)
       moveTo(tx, moving, to)
