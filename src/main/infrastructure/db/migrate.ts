@@ -1,4 +1,5 @@
 import type { Database } from './connection'
+import { DatabaseError } from './errors'
 import init001 from './migrations/001_init.sql?raw'
 
 export interface Migration {
@@ -16,10 +17,16 @@ export interface Migration {
  */
 export const migrations: readonly Migration[] = [{ version: 1, name: '001_init', sql: init001 }]
 
+const readVersion = (db: Database): number => db.pragma('user_version', { simple: true }) as number
+
 /**
  * Applies the migrations newer than `PRAGMA user_version`, each one in its own transaction
  * together with its version bump: a failing file leaves the database exactly as it was.
  * Migration SQL must not contain BEGIN/COMMIT.
+ *
+ * A database whose `user_version` is higher than the number of known migrations was written by a
+ * newer app: it is refused (`newer_schema`) before anything is touched. The version is always
+ * read inside an IMMEDIATE transaction, i.e. under the write lock.
  */
 export function migrate(db: Database, list: readonly Migration[] = migrations): { from: number; to: number } {
   list.forEach((m, index) => {
@@ -28,15 +35,27 @@ export function migrate(db: Database, list: readonly Migration[] = migrations): 
     }
   })
 
-  const from = db.pragma('user_version', { simple: true }) as number
-  let current = from
+  const from = db
+    .transaction(() => {
+      const version = readVersion(db)
+      if (version > list.length) throw new DatabaseError('newer_schema', { found: version, supported: list.length })
+      return version
+    })
+    .immediate()
+
+  let to = from
   for (const m of list) {
-    if (m.version <= current) continue
-    db.transaction(() => {
-      db.exec(m.sql)
-      db.exec(`PRAGMA user_version = ${m.version}`)
-    }).immediate()
-    current = m.version
+    to = db
+      .transaction(() => {
+        // Re-read under the lock: skips a migration that is already applied, whether by an earlier
+        // run or by another connection since the read above.
+        const version = readVersion(db)
+        if (version >= m.version) return version
+        db.exec(m.sql)
+        db.exec(`PRAGMA user_version = ${m.version}`)
+        return m.version
+      })
+      .immediate()
   }
-  return { from, to: current }
+  return { from, to }
 }

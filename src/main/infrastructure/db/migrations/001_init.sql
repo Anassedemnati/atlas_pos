@@ -5,8 +5,9 @@
 -- JSON text; booleans are 0/1. A column without NOT NULL is nullable, and NULL means "absent".
 -- A foreign key links a row to the parent that owns it. Ids that merely refer to something that
 -- may later change or disappear (an order line's product, any user_id, a ticket's order and
--- day) stay plain, so that history never depends on live rows. No ON DELETE actions anywhere:
--- deleting a parent that still has children fails instead of silently deleting data.
+-- day) stay plain, so that history never depends on live rows. The only ON DELETE action is
+-- CASCADE on the two pure link tables (product_modifier_groups, category_printers); everywhere
+-- else deleting a parent that still has children fails instead of silently deleting data.
 
 -- Settings, audit trail, counters ---------------------------------------------------------------
 
@@ -104,8 +105,8 @@ CREATE TABLE modifiers (
 CREATE INDEX idx_modifiers_group_id ON modifiers (group_id);
 
 CREATE TABLE product_modifier_groups (
-  product_id TEXT NOT NULL,
-  group_id   TEXT NOT NULL,
+  product_id TEXT NOT NULL REFERENCES products (id) ON DELETE CASCADE,
+  group_id   TEXT NOT NULL REFERENCES modifier_groups (id) ON DELETE CASCADE,
   PRIMARY KEY (product_id, group_id)
 );
 
@@ -167,8 +168,8 @@ CREATE TABLE printers (
 );
 
 CREATE TABLE category_printers (
-  category_id TEXT NOT NULL,
-  printer_id  TEXT NOT NULL,
+  category_id TEXT NOT NULL REFERENCES categories (id) ON DELETE CASCADE,
+  printer_id  TEXT NOT NULL REFERENCES printers (id) ON DELETE CASCADE,
   PRIMARY KEY (category_id, printer_id)
 );
 
@@ -337,7 +338,9 @@ CREATE TABLE backup_runs (
 
 -- Immutability ----------------------------------------------------------------------------------
 -- A closed ticket never changes (only its reprint counter moves); a correction is a new credit
--- ticket. Invoices and Z reports never change at all. Nothing here can be deleted.
+-- ticket. Invoices and Z reports never change at all, and the event log is append-only. Nothing
+-- here can be deleted. INSERT OR REPLACE evicts a conflicting row through the DELETE triggers
+-- below only while `recursive_triggers` is ON, which openDatabase() sets on every connection.
 
 CREATE TRIGGER tickets_no_update
 BEFORE UPDATE ON tickets
@@ -384,4 +387,16 @@ CREATE TRIGGER z_reports_no_delete
 BEFORE DELETE ON z_reports
 BEGIN
   SELECT RAISE(ABORT, 'z_report_immutable');
+END;
+
+CREATE TRIGGER event_log_no_update
+BEFORE UPDATE ON event_log
+BEGIN
+  SELECT RAISE(ABORT, 'event_log_append_only');
+END;
+
+CREATE TRIGGER event_log_no_delete
+BEFORE DELETE ON event_log
+BEGIN
+  SELECT RAISE(ABORT, 'event_log_append_only');
 END;

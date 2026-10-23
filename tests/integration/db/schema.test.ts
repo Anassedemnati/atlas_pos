@@ -62,4 +62,58 @@ describe('schema v1 constraints', () => {
     insertUser('u3', 'owner')
     expect(() => insertUser('u4', 'owner')).toThrow(/UNIQUE/)
   })
+
+  describe('join tables', () => {
+    const count = (table: string): number =>
+      (t.db.prepare(`SELECT count(*) AS n FROM ${table}`).get() as { n: number }).n
+
+    beforeEach(() => {
+      t.db.exec(`
+        INSERT INTO categories (id, name_json, color) VALUES ('c1', '{}', '#000');
+        INSERT INTO products (id, category_id, name_json, price_cents, vat_bp) VALUES ('p1', 'c1', '{}', 100, 1000);
+        INSERT INTO modifier_groups (id, name_json) VALUES ('g1', '{}');
+        INSERT INTO printers (id, name, kind, role) VALUES ('pr1', 'Kitchen', 'network', 'kitchen');
+        INSERT INTO product_modifier_groups (product_id, group_id) VALUES ('p1', 'g1');
+        INSERT INTO category_printers (category_id, printer_id) VALUES ('c1', 'pr1');
+      `)
+    })
+
+    it('rejects links to a missing parent', () => {
+      const insertPmg = (p: string, g: string): void => {
+        t.db.prepare('INSERT INTO product_modifier_groups (product_id, group_id) VALUES (?, ?)').run(p, g)
+      }
+      const insertCp = (c: string, p: string): void => {
+        t.db.prepare('INSERT INTO category_printers (category_id, printer_id) VALUES (?, ?)').run(c, p)
+      }
+      expect(() => insertPmg('nope', 'g1')).toThrow(/FOREIGN KEY/)
+      expect(() => insertPmg('p1', 'nope')).toThrow(/FOREIGN KEY/)
+      expect(() => insertCp('nope', 'pr1')).toThrow(/FOREIGN KEY/)
+      expect(() => insertCp('c1', 'nope')).toThrow(/FOREIGN KEY/)
+    })
+
+    it('removes product_modifier_groups links with either parent', () => {
+      t.db.exec("DELETE FROM modifier_groups WHERE id = 'g1'")
+      expect(count('product_modifier_groups')).toBe(0)
+      expect(count('products')).toBe(1)
+    })
+
+    it('removes product_modifier_groups links when the product goes', () => {
+      t.db.exec("DELETE FROM products WHERE id = 'p1'")
+      expect(count('product_modifier_groups')).toBe(0)
+      expect(count('modifier_groups')).toBe(1)
+    })
+
+    it('removes category_printers links with the printer', () => {
+      t.db.exec("DELETE FROM printers WHERE id = 'pr1'")
+      expect(count('category_printers')).toBe(0)
+      expect(count('categories')).toBe(1)
+    })
+
+    it('removes category_printers links with the category once it has no products', () => {
+      t.db.exec("DELETE FROM products WHERE id = 'p1'")
+      t.db.exec("DELETE FROM categories WHERE id = 'c1'")
+      expect(count('category_printers')).toBe(0)
+      expect(count('printers')).toBe(1)
+    })
+  })
 })

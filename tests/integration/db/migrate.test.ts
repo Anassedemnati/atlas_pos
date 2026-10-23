@@ -1,5 +1,6 @@
 import { readdirSync } from 'node:fs'
 import { afterEach, describe, expect, it } from 'vitest'
+import { DatabaseError } from '../../../src/main/infrastructure/db/errors'
 import { migrate, migrations, type Migration } from '../../../src/main/infrastructure/db/migrate'
 import { tempDb, type TempDb } from '../../helpers/db'
 
@@ -75,6 +76,27 @@ describe('migrate', () => {
       expect(() => migrate(t.db, [m1, bad])).toThrow(/does_not_exist/)
       expect(userVersion(t)).toBe(1)
       expect(tableNames(t)).toEqual(['a'])
+      expect(t.db.inTransaction).toBe(false)
+    })
+
+    it('refuses a database from a newer app (newer_schema) and does not touch it', () => {
+      t = tempDb({ migrate: false })
+      migrate(t.db, [m1, m2])
+      t.db.exec('PRAGMA user_version = 3') // as left by an app that knows 3 migrations
+      let error: unknown
+      try {
+        migrate(t.db, [m1, m2])
+      } catch (e) {
+        error = e
+      }
+      expect(error).toBeInstanceOf(DatabaseError)
+      expect(error).toMatchObject({
+        code: 'newer_schema',
+        messageKey: 'errors.newer_schema',
+        params: { found: 3, supported: 2 }
+      })
+      expect(userVersion(t)).toBe(3)
+      expect(tableNames(t).sort()).toEqual(['a', 'b'])
       expect(t.db.inTransaction).toBe(false)
     })
 
