@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util'
 import { AppErrorException } from '../../../application/errors'
 import {
   SETTINGS,
@@ -17,7 +18,8 @@ export interface SettingsRepo {
   get<K extends SettingKey>(key: K): SettingValue<K>
   /**
    * Validates, stores, writes the `event_log` row and pushes `settings.changed` (published once
-   * the transaction commits). Throws `invalid_input` (`params.field` = the offending path) and
+   * the transaction commits). A value equal to the stored one writes nothing (a value that was never
+   * stored is always written, even when it equals the default: profiles export stored values). Throws `invalid_input` (`params.field` = the offending path) and
    * writes nothing when the value does not satisfy the registry schema.
    * Who may call it is the use case's business: the repo does not check permissions.
    */
@@ -57,13 +59,23 @@ export function createSettingsRepo(db: Database): SettingsRepo {
         const field = [key, ...(issue?.path ?? [])].join('.')
         throw new AppErrorException('invalid_input', { field, reason: issue?.message })
       }
+      const row = tx.db.prepare('SELECT value_json FROM settings WHERE key = ?').get(key) as
+        | { value_json: string }
+        | undefined
       // A stored value that no longer reads back must stay replaceable, or it could never be repaired.
-      let previous: unknown
-      try {
-        previous = get(key)
-      } catch {
-        previous = undefined
+      let stored: unknown
+      let readable = false
+      if (row) {
+        try {
+          stored = read(key, row.value_json)
+          readable = true
+        } catch {
+          // handled below: written over
+        }
       }
+      // Saving what is already stored is not a change: no row, no audit entry, no event.
+      if (readable && isDeepStrictEqual(stored, checked.data)) return
+      const previous = row ? stored : defaultOf(key)
       tx.db
         .prepare(
           `INSERT INTO settings (key, value_json, updated_at) VALUES (?, ?, ?)

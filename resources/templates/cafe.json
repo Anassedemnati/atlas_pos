@@ -29,6 +29,7 @@
     {"code":"thes","name":{"fr":"Thés et infusions","ar":"الشاي والأعشاب","en":"Teas and infusions"},"color":"#2E7D4F"},
     {"code":"jus-boissons","name":{"fr":"Jus et boissons fraîches","ar":"العصائر والمشروبات الباردة","en":"Juices and cold drinks"},"color":"#C27A0E"},
     {"code":"viennoiseries","name":{"fr":"Viennoiseries","ar":"المعجنات","en":"Viennoiseries"},"color":"#B5532A"},
+    {"code":"crepes-galettes","name":{"fr":"Crêpes et galettes","ar":"الفطائر المغربية","en":"Moroccan pancakes and flatbreads"},"color":"#6B7A2A"},
     {"code":"sandwichs","name":{"fr":"Sandwichs et snacks","ar":"السندويتشات والوجبات الخفيفة","en":"Sandwiches and snacks"},"color":"#A63D3D"},
     {"code":"desserts","name":{"fr":"Desserts","ar":"الحلويات","en":"Desserts"},"color":"#8E4A8F"},
     {"code":"formules","name":{"fr":"Formules","ar":"العروض","en":"Formulas"},"color":"#14213D"}
@@ -57,9 +58,9 @@
     {"code":"pain-chocolat","category":"viennoiseries","name":{"fr":"Pain au chocolat","ar":"خبز بالشوكولاتة","en":"Pain au chocolat"},"price_cents":500,"vat_bp":1000,"image":true},
     {"code":"pain-raisins","category":"viennoiseries","name":{"fr":"Pain aux raisins","ar":"خبز بالزبيب","en":"Raisin swirl"},"price_cents":500,"vat_bp":1000},
     {"code":"brioche","category":"viennoiseries","name":{"fr":"Brioche","ar":"بريوش","en":"Brioche"},"price_cents":400,"vat_bp":1000},
-    {"code":"msemen","category":"viennoiseries","name":{"fr":"Msemen","ar":"مسمن","en":"Msemen (flaky flatbread)"},"price_cents":300,"vat_bp":1000,"image":true},
-    {"code":"baghrir","category":"viennoiseries","name":{"fr":"Baghrir","ar":"بغرير","en":"Baghrir (semolina pancake)"},"price_cents":400,"vat_bp":1000},
-    {"code":"harcha","category":"viennoiseries","name":{"fr":"Harcha","ar":"حرشة","en":"Harcha (semolina flatbread)"},"price_cents":400,"vat_bp":1000},
+    {"code":"msemen","category":"crepes-galettes","name":{"fr":"Msemen","ar":"مسمن","en":"Msemen (flaky flatbread)"},"price_cents":300,"vat_bp":1000,"image":true},
+    {"code":"baghrir","category":"crepes-galettes","name":{"fr":"Baghrir","ar":"بغرير","en":"Baghrir (semolina pancake)"},"price_cents":400,"vat_bp":1000},
+    {"code":"harcha","category":"crepes-galettes","name":{"fr":"Harcha","ar":"حرشة","en":"Harcha (semolina flatbread)"},"price_cents":400,"vat_bp":1000},
     {"code":"sandwich-poulet","category":"sandwichs","name":{"fr":"Sandwich poulet","ar":"ساندويتش الدجاج","en":"Chicken sandwich"},"price_cents":2500,"vat_bp":1000,"modifier_groups":["sans"],"image":true},
     {"code":"sandwich-thon","category":"sandwichs","name":{"fr":"Sandwich thon","ar":"ساندويتش التونة","en":"Tuna sandwich"},"price_cents":2200,"vat_bp":1000,"modifier_groups":["sans"]},
     {"code":"panini-poulet-fromage","category":"sandwichs","name":{"fr":"Panini poulet fromage","ar":"بانيني دجاج وجبن","en":"Chicken and cheese panini"},"price_cents":2800,"vat_bp":1000,"modifier_groups":["sans"]},
@@ -116,7 +117,7 @@
           "items": [{"product":"jus-orange"},{"product":"jus-avocat","supplement_cents":500}]
         },
         {
-          "name": {"fr":"Viennoiserie","ar":"معجنات","en":"Viennoiserie"},
+          "name": {"fr":"Viennoiserie ou crêpe","ar":"معجنات أو فطيرة","en":"Viennoiserie or pancake"},
           "items": [{"product":"croissant"},{"product":"pain-chocolat"},{"product":"msemen"},{"product":"baghrir"}]
         }
       ]
@@ -129,6 +130,7 @@
     "thes": "bar",
     "jus-boissons": "bar",
     "viennoiseries": "kitchen",
+    "crepes-galettes": "kitchen",
     "sandwichs": "kitchen",
     "desserts": "kitchen",
     "formules": "kitchen"

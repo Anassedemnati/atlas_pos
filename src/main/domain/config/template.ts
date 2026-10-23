@@ -37,8 +37,8 @@ export const CatalogProductSchema = z.strictObject({
   price_cents: z.number().int().min(0),
   /** Basis points: 2000 = 20 %. */
   vat_bp: z.number().int().min(0).max(10000),
-  /** EAN-8, UPC-A, EAN-13 or GTIN-14, digits only. */
-  barcode: z.string().regex(/^\d{8,14}$/).optional(),
+  /** What a scanner sends or a user types: letters, digits and `-`, up to 32 characters (EANs, UPCs, internal codes). */
+  barcode: z.string().regex(/^[0-9A-Za-z-]{1,32}$/).optional(),
   /** `price_cents` is then the price per kilogram. */
   sold_by_weight: z.boolean().default(false),
   color: Color.optional(),

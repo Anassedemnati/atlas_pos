@@ -2,6 +2,7 @@ import { gunzipSync, gzipSync } from 'node:zlib'
 import { z } from 'zod'
 import type { Result } from '@shared/result'
 import { version as PACKAGE_VERSION } from '../../../../package.json'
+import { AppErrorException } from '../../application/errors'
 import type { Clock } from '../../application/ports'
 import {
   SETTINGS,
@@ -89,6 +90,12 @@ export const ProfileSchema = z
     profiles: z.array(PermissionProfileSchema)
   })
   .superRefine((p, ctx) => {
+    p.printers.forEach((printer, i) => {
+      // A hand-edited profile must not be able to point this machine at a device path.
+      if (printer.address !== undefined && !KINDS_WITH_PORTABLE_ADDRESS.includes(printer.kind)) {
+        ctx.addIssue({ code: 'custom', message: 'only a network printer carries an address', path: ['printers', i, 'address'] })
+      }
+    })
     const { rooms, tables, paymentMethods, profiles } = p
     for (const { path, message } of integrityIssues({ ...p.catalog, rooms, tables, paymentMethods, profiles })) {
       const section = String(path[0])
@@ -141,7 +148,43 @@ function codesFor(names: string[]): string[] {
 }
 
 type LocalizedName = z.output<typeof LocalizedNameSchema>
-const nameOf = (json: string): LocalizedName => LocalizedNameSchema.parse(JSON.parse(json))
+
+const exportFailed = (field: string, reason: string): AppErrorException =>
+  new AppErrorException('profile_export_failed', { field, reason })
+
+function parseJson(json: string, field: string): unknown {
+  try {
+    return JSON.parse(json)
+  } catch {
+    throw exportFailed(field, 'not JSON')
+  }
+}
+
+/** A stored name; an empty or blank Arabic or English name is the same as none. `field` names the column in errors. */
+function nameOf(json: string, field: string): LocalizedName {
+  const raw = parseJson(json, field)
+  const { fr, ar, en } = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>
+  const filled = (value: unknown): value is string => typeof value === 'string' && value.trim() !== ''
+  const parsed = LocalizedNameSchema.safeParse({ fr, ...(filled(ar) ? { ar } : {}), ...(filled(en) ? { en } : {}) })
+  if (!parsed.success) throw exportFailed(field, parsed.error.issues[0]?.message ?? 'invalid name')
+  return parsed.data
+}
+
+const namesOf = (rows: Row[], field: string): LocalizedName[] =>
+  rows.map((r) => nameOf(r['name_json'] as string, field))
+
+/** Keeps a payment method code that already is a code, slugs the others, and keeps all of them unique. */
+function paymentCodes(codes: string[]): string[] {
+  const used = new Set(codes.filter((code) => CodeSchema.safeParse(code).success))
+  return codes.map((code) => {
+    if (CodeSchema.safeParse(code).success) return code
+    const base = slug(code)
+    let unique = base
+    for (let n = 2; used.has(unique); n++) unique = `${base}-${n}`
+    used.add(unique)
+    return unique
+  })
+}
 
 interface Row {
   [column: string]: string | number | null
@@ -171,26 +214,28 @@ function buildProfile(db: Database, createdAt: string, appVersion: string): Prof
 
   // Categories and products
   const categoryRows = all(db, 'SELECT * FROM categories ORDER BY sort, id')
-  const categoryCodes = codesFor(categoryRows.map((r) => nameOf(r['name_json'] as string).fr))
+  const categoryNames = namesOf(categoryRows, 'categories.name')
+  const categoryCodes = codesFor(categoryNames.map((n) => n.fr))
   const categoryCode = new Map(categoryRows.map((r, i) => [r['id'] as string, categoryCodes[i]!]))
   const categories: Category[] = categoryRows.map((r, i) => ({
     code: categoryCodes[i]!,
-    name: nameOf(r['name_json'] as string),
+    name: categoryNames[i]!,
     color: r['color'] as string,
     active: r['active'] === 1
   }))
 
   const groupRows = all(db, 'SELECT * FROM modifier_groups ORDER BY sort, id')
-  const groupCodes = codesFor(groupRows.map((r) => nameOf(r['name_json'] as string).fr))
+  const groupNames = namesOf(groupRows, 'modifierGroups.name')
+  const groupCodes = codesFor(groupNames.map((n) => n.fr))
   const groupCode = new Map(groupRows.map((r, i) => [r['id'] as string, groupCodes[i]!]))
   const modifiersByGroup = groupBy(all(db, 'SELECT * FROM modifiers ORDER BY sort, id'), (r) => r['group_id'] as string)
   const modifierGroups: ModifierGroup[] = groupRows.map((r, i) => ({
     code: groupCodes[i]!,
-    name: nameOf(r['name_json'] as string),
+    name: groupNames[i]!,
     min_select: r['min_select'] as number,
     max_select: r['max_select'] as number,
     modifiers: (modifiersByGroup.get(r['id'] as string) ?? []).map((m) => ({
-      name: nameOf(m['name_json'] as string),
+      name: nameOf(m['name_json'] as string, 'modifierGroups.modifiers.name'),
       price_delta_cents: m['price_delta_cents'] as number
     }))
   }))
@@ -207,12 +252,13 @@ function buildProfile(db: Database, createdAt: string, appVersion: string): Prof
     `SELECT p.* FROM products p JOIN categories c ON c.id = p.category_id
      ORDER BY c.sort, c.id, p.sort, p.id`
   )
-  const productCodes = codesFor(productRows.map((r) => nameOf(r['name_json'] as string).fr))
+  const productNames = namesOf(productRows, 'products.name')
+  const productCodes = codesFor(productNames.map((n) => n.fr))
   const productCode = new Map(productRows.map((r, i) => [r['id'] as string, productCodes[i]!]))
   const products: CatalogProduct[] = productRows.map((r, i) => ({
     code: productCodes[i]!,
     category: categoryCode.get(r['category_id'] as string)!,
-    name: nameOf(r['name_json'] as string),
+    name: productNames[i]!,
     price_cents: r['price_cents'] as number,
     vat_bp: r['vat_bp'] as number,
     ...(r['barcode'] === null ? {} : { barcode: r['barcode'] as string }),
@@ -222,7 +268,9 @@ function buildProfile(db: Database, createdAt: string, appVersion: string): Prof
     course: r['course'] as number,
     active: r['active'] === 1,
     stock_tracked: r['stock_tracked'] === 1,
-    stock_milli: r['stock_milli'] as number,
+    // A profile is a setup, not an inventory: tracking and the alert threshold travel, the live
+    // quantity (which can even be negative after overselling) does not.
+    stock_milli: 0,
     low_stock_milli: r['low_stock_milli'] as number,
     modifier_groups: groupRows
       .filter((g) => linked.get(r['id'] as string)?.has(g['id'] as string))
@@ -235,7 +283,7 @@ function buildProfile(db: Database, createdAt: string, appVersion: string): Prof
   const menus: Menu[] = all(db, 'SELECT * FROM menus ORDER BY id').map((m) => ({
     product: productCode.get(m['product_id'] as string)!,
     courses: (coursesByMenu.get(m['id'] as string) ?? []).map((c) => ({
-      name: nameOf(c['name_json'] as string),
+      name: nameOf(c['name_json'] as string, 'menus.courses.name'),
       choose_count: c['choose_count'] as number,
       items: (itemsByCourse.get(c['id'] as string) ?? []).map((i) => ({
         product: productCode.get(i['product_id'] as string)!,
@@ -246,9 +294,10 @@ function buildProfile(db: Database, createdAt: string, appVersion: string): Prof
 
   // Floor plan
   const roomRows = all(db, 'SELECT * FROM rooms ORDER BY sort, id')
-  const roomCodes = codesFor(roomRows.map((r) => nameOf(r['name_json'] as string).fr))
+  const roomNames = namesOf(roomRows, 'rooms.name')
+  const roomCodes = codesFor(roomNames.map((n) => n.fr))
   const roomCode = new Map(roomRows.map((r, i) => [r['id'] as string, roomCodes[i]!]))
-  const rooms: Room[] = roomRows.map((r, i) => ({ code: roomCodes[i]!, name: nameOf(r['name_json'] as string) }))
+  const rooms: Room[] = roomRows.map((_, i) => ({ code: roomCodes[i]!, name: roomNames[i]! }))
   const tables: TableDef[] = all(
     db,
     `SELECT t.* FROM tables t JOIN rooms r ON r.id = t.room_id ORDER BY r.sort, r.id, t.id`
@@ -256,8 +305,9 @@ function buildProfile(db: Database, createdAt: string, appVersion: string): Prof
     room: roomCode.get(t['room_id'] as string)!,
     label: t['label'] as string,
     shape: t['shape'] as TableDef['shape'],
-    x: t['x'] as number,
-    y: t['y'] as number,
+    // The grid starts at 0: a position dragged off its edge is brought back onto it.
+    x: Math.max(0, t['x'] as number),
+    y: Math.max(0, t['y'] as number),
     w: t['w'] as number,
     h: t['h'] as number,
     seats: t['seats'] as number,
@@ -290,22 +340,26 @@ function buildProfile(db: Database, createdAt: string, appVersion: string): Prof
   })
 
   // Payment methods and permission profiles (the people themselves are never exported)
-  const paymentMethods: PaymentMethodDef[] = all(db, 'SELECT * FROM payment_methods ORDER BY sort, id').map((m) => ({
-    code: m['code'] as string,
-    name: nameOf(m['name_json'] as string),
+  const paymentRows = all(db, 'SELECT * FROM payment_methods ORDER BY sort, id')
+  const paymentMethodCodes = paymentCodes(paymentRows.map((m) => m['code'] as string))
+  const paymentNames = namesOf(paymentRows, 'paymentMethods.name')
+  const paymentMethods: PaymentMethodDef[] = paymentRows.map((m, i) => ({
+    code: paymentMethodCodes[i]!,
+    name: paymentNames[i]!,
     opens_drawer: m['opens_drawer'] === 1,
     active: m['active'] === 1
   }))
   const profileRows = all(db, 'SELECT * FROM profiles ORDER BY id')
-  const profileCodes = codesFor(profileRows.map((r) => nameOf(r['name_json'] as string).fr))
+  const profileNames = namesOf(profileRows, 'profiles.name')
+  const profileCodes = codesFor(profileNames.map((n) => n.fr))
   const profiles: PermissionProfile[] = profileRows.map((r, i) => ({
     code: profileCodes[i]!,
-    name: nameOf(r['name_json'] as string),
-    permissions: JSON.parse(r['permissions_json'] as string) as PermissionProfile['permissions'],
+    name: profileNames[i]!,
+    permissions: parseJson(r['permissions_json'] as string, 'profiles.permissions') as PermissionProfile['permissions'],
     max_discount_bp: r['max_discount_bp'] as number
   }))
 
-  return ProfileSchema.parse({
+  const built = ProfileSchema.safeParse({
     format: PROFILE_FORMAT,
     schemaVersion: PROFILE_SCHEMA_VERSION,
     createdAt,
@@ -320,6 +374,11 @@ function buildProfile(db: Database, createdAt: string, appVersion: string): Prof
     paymentMethods,
     profiles
   })
+  if (!built.success) {
+    const issue = built.error.issues[0]
+    throw exportFailed((issue?.path ?? []).join('.'), issue?.message ?? 'invalid profile')
+  }
+  return built.data
 }
 
 export interface ExportOptions {
@@ -331,8 +390,13 @@ export interface ExportOptions {
 
 /**
  * The current setup as a `.atlasprofile`: gzip of the JSON `Profile`. Read in one transaction, so
- * the profile is a consistent snapshot even while the till writes. Throws if the database holds
- * something a profile cannot express (a bug, never user input): it never writes an unreadable file.
+ * the profile is a consistent snapshot even while the till writes.
+ *
+ * Normalised on the way out, so that legal rows never block an export: live stock is not exported
+ * (`stock_milli` is 0), an empty Arabic or English name is dropped, a negative table position is
+ * clamped to 0 and a payment method code that is not a code is slugged. Whatever a profile still
+ * cannot express throws `AppErrorException('profile_export_failed', { field, reason })`: it never
+ * writes a file `readProfile` would refuse, and never leaks a raw ZodError.
  */
 export function exportProfile(db: Database, options: ExportOptions = {}): Buffer {
   const now = (options.clock ?? { now: () => new Date() }).now()

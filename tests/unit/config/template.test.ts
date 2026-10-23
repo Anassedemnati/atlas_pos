@@ -260,6 +260,21 @@ describe('business templates', () => {
       expect(t.menus).toHaveLength(1)
       expect(t.products.find((p) => p.code === t.menus[0]!.product)?.name.fr).toBe('Formule petit-déjeuner')
     })
+    it('keeps the Moroccan pancakes and flatbreads out of the viennoiseries', () => {
+      const category = (code: string): string => t.products.find((p) => p.code === code)!.category
+      for (const code of ['msemen', 'baghrir', 'harcha']) expect(category(code), code).toBe('crepes-galettes')
+      expect(t.products.filter((p) => p.category === 'viennoiseries').map((p) => p.code)).toEqual([
+        'croissant',
+        'pain-chocolat',
+        'pain-raisins',
+        'brioche'
+      ])
+      expect(t.categories.find((c) => c.code === 'crepes-galettes')?.name).toEqual({
+        fr: 'Crêpes et galettes',
+        ar: 'الفطائر المغربية',
+        en: 'Moroccan pancakes and flatbreads'
+      })
+    })
     it('prices the examples from the guidance', () => {
       const byCode = Object.fromEntries(t.products.map((p) => [p.code, p]))
       expect(byCode['cafe-noir']).toMatchObject({ price_cents: 1000 })

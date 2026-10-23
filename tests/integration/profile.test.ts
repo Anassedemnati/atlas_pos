@@ -1,6 +1,7 @@
 import { gunzipSync, gzipSync } from 'node:zlib'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import pkg from '../../package.json'
+import { AppErrorException } from '../../src/main/application/errors'
 import { createEventBus } from '../../src/main/application/events'
 import { loadTemplate } from '../../src/main/domain/config/template'
 import type { Template } from '../../src/main/domain/config/template'
@@ -263,6 +264,89 @@ describe('setup profile (.atlasprofile)', () => {
     })
   })
 
+  describe('legal rows a profile must still be able to express', () => {
+    const seedRetail = (): void => {
+      seedSetup(t.db, loadTemplate('retail'))
+    }
+    const exported = (): Profile => asProfile(exportProfile(t.db))
+    const thrownBy = (fn: () => unknown): unknown => {
+      try {
+        fn()
+      } catch (error) {
+        return error
+      }
+      return undefined
+    }
+
+    it('never carries live inventory: stock is 0, tracking and the alert threshold stay', () => {
+      seedRetail()
+      // An oversold product (the till never refuses to oversell) must not brick the export.
+      t.db.prepare("UPDATE products SET stock_milli = -1000 WHERE barcode = '2000000000015'").run()
+      const buf = exportProfile(t.db)
+      const profile = asProfile(buf)
+      expect(profile.catalog.products).toHaveLength(loadTemplate('retail').products.length)
+      for (const p of profile.catalog.products) {
+        expect(p).toMatchObject({ stock_tracked: true, stock_milli: 0, low_stock_milli: 6000 })
+      }
+      expect(profile).toEqual(JSON.parse(unzip(buf)))
+    })
+
+    it('leaves out an empty or blank Arabic or English name instead of failing', () => {
+      seedRetail()
+      t.db.prepare(`UPDATE products SET name_json = '{"fr":"Sucre","ar":"","en":"  "}' WHERE barcode = '2000000000015'`).run()
+      t.db.prepare(`UPDATE categories SET name_json = '{"fr":"Épicerie","ar":"البقالة","en":""}' WHERE name_json LIKE '%Épicerie%'`).run()
+      const profile = exported()
+      expect(profile.catalog.products[0]!.name).toStrictEqual({ fr: 'Sucre' })
+      expect(profile.catalog.categories[0]!.name).toStrictEqual({ fr: 'Épicerie', ar: 'البقالة' })
+    })
+
+    it('round-trips a short or alphanumeric barcode', () => {
+      seedRetail()
+      t.db.prepare("UPDATE products SET barcode = '123' WHERE barcode = '2000000000015'").run()
+      t.db.prepare("UPDATE products SET barcode = 'AB-12c' WHERE barcode = '2000000000022'").run()
+      t.db.prepare("UPDATE products SET barcode = ? WHERE barcode = '2000000000039'").run('Z'.repeat(32))
+      const barcodes = exported().catalog.products.slice(0, 3).map((p) => p.barcode)
+      expect(barcodes).toEqual(['123', 'AB-12c', 'Z'.repeat(32)])
+    })
+
+    it('clamps a negative table position to the grid', () => {
+      seedSetup(t.db, restaurant)
+      t.db.prepare("UPDATE tables SET x = -20, y = -1 WHERE label = '1'").run()
+      const first = exported().tables.find((x) => x.label === '1')!
+      expect([first.x, first.y]).toEqual([0, 0])
+    })
+
+    it('turns a payment method code that is not a code into one, keeping valid codes and staying unique', () => {
+      seedSetup(t.db, restaurant)
+      t.db.prepare("UPDATE payment_methods SET code = 'mobile_pay' WHERE code = 'card'").run()
+      t.db.prepare("UPDATE payment_methods SET code = 'Mobile Pay!' WHERE code = 'cheque'").run()
+      expect(exported().paymentMethods.map((m) => m.code)).toEqual(['cash', 'mobile_pay', 'mobile-pay'])
+
+      t.db.prepare("UPDATE payment_methods SET code = 'mobile pay' WHERE code = 'mobile_pay'").run()
+      expect(exported().paymentMethods.map((m) => m.code)).toEqual(['cash', 'mobile-pay', 'mobile-pay-2'])
+    })
+
+    it('reports what it cannot express as profile_export_failed, never as a raw ZodError', () => {
+      seedRetail()
+      t.db.prepare("UPDATE products SET price_cents = -5 WHERE barcode = '2000000000015'").run()
+      const error = thrownBy(() => exportProfile(t.db))
+      expect(error).toBeInstanceOf(AppErrorException)
+      expect(error).toMatchObject({
+        code: 'profile_export_failed',
+        messageKey: 'errors.profile_export_failed',
+        params: { field: 'catalog.products.0.price_cents' }
+      })
+    })
+
+    it('reports an unreadable name as profile_export_failed too', () => {
+      seedRetail()
+      t.db.prepare("UPDATE categories SET name_json = '{not json'").run()
+      expect(thrownBy(() => exportProfile(t.db))).toMatchObject({ code: 'profile_export_failed' })
+      t.db.prepare(`UPDATE categories SET name_json = '{"fr":"  "}'`).run()
+      expect(thrownBy(() => exportProfile(t.db))).toMatchObject({ code: 'profile_export_failed' })
+    })
+  })
+
   describe('round trip', () => {
     it('reading an export gives back exactly what was written', () => {
       installRestaurant(t.db, restaurant)
@@ -369,6 +453,35 @@ describe('setup profile (.atlasprofile)', () => {
       // @ts-expect-error not a permission
       profile.profiles[0]!.permissions.push('root.everything')
       expect(errorOf(gz(profile)).code).toBe('invalid_profile')
+    })
+
+    it('accepts a short or alphanumeric barcode but not spaces or more than 32 characters', () => {
+      const base = valid()
+      const withBarcode = (barcode: string): Profile => {
+        const profile = structuredClone(base)
+        profile.catalog.products[0]!.barcode = barcode
+        return profile
+      }
+      expect(readProfile(gz(withBarcode('AB-12c'))).ok).toBe(true)
+      expect(readProfile(gz(withBarcode('1'))).ok).toBe(true)
+      expect(errorOf(gz(withBarcode('has space'))).code).toBe('invalid_profile')
+      expect(errorOf(gz(withBarcode('Z'.repeat(33)))).code).toBe('invalid_profile')
+      expect(errorOf(gz(withBarcode(''))).code).toBe('invalid_profile')
+    })
+
+    it('rejects a device path injected into a printer that is not on the network', () => {
+      const base = valid()
+      const profile = structuredClone(base)
+      const serial = profile.printers.findIndex((p) => p.kind === 'serial')
+      expect(serial).toBeGreaterThanOrEqual(0)
+      profile.printers[serial]!.address = 'COM3'
+      expect(errorOf(gz(profile))).toMatchObject({
+        code: 'invalid_profile',
+        params: { field: `printers.${serial}.address` }
+      })
+      // A network printer may carry its address.
+      expect(base.printers.some((p) => p.kind === 'network' && p.address)).toBe(true)
+      expect(readProfile(gz(base)).ok).toBe(true)
     })
 
     it('refuses a gzip bomb', () => {

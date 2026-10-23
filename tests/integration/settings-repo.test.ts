@@ -68,6 +68,30 @@ describe('settings repo', () => {
     expect(t.db.prepare('SELECT count(*) AS n FROM settings').get()).toEqual({ n: 1 })
   })
 
+  it('writes nothing when the value equals the stored one', () => {
+    uow.run((tx) => repo.set(tx, 'business.legal', legal))
+    uow.run((tx) => repo.set(tx, 'receipt.lang', 'ar'))
+    published.length = 0
+    const later = createUnitOfWork(t.db, fixedClock('2026-10-23T09:00:00.000Z'), createEventBus())
+    later.run((tx) => {
+      repo.set(tx, 'receipt.lang', 'ar')
+      repo.set(tx, 'business.legal', { ...legal }) // a different object with the same content
+      expect(tx.events).toEqual([])
+    })
+    expect(eventRows()).toHaveLength(2)
+    expect(published).toEqual([])
+    expect(t.db.prepare("SELECT updated_at FROM settings WHERE key = 'receipt.lang'").get()).toEqual({
+      updated_at: '2026-10-22T10:30:00.000Z'
+    })
+  })
+
+  it('still records a value that equals the default when nothing was stored yet', () => {
+    uow.run((tx) => repo.set(tx, 'receipt.lang', 'fr'))
+    expect(t.db.prepare("SELECT value_json FROM settings WHERE key = 'receipt.lang'").get()).toEqual({ value_json: '"fr"' })
+    expect(eventRows()).toHaveLength(1)
+    expect(published).toEqual([{ type: 'settings.changed', keys: ['receipt.lang'] }])
+  })
+
   it('writes an event_log row with the previous and the new value', () => {
     uow.run((tx) => repo.set(tx, 'receipt.lang', 'ar', 'user-1'))
     expect(eventRows()).toEqual([
