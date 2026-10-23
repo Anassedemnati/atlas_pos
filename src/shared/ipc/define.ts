@@ -5,12 +5,12 @@ import { PERMISSIONS, type Permission } from '../permissions'
  * Who may call a channel, checked by the main process before the handler runs:
  * - `public`: anyone (the login screen, the start-up report);
  * - `session`: a user signed in on this window;
- * - `{ permission }`: a signed-in user holding it;
+ * - `{ permission }`: a signed-in user holding it (or, with `orTechnician`, the technician mode);
  * - `technician`: the technician code was entered on this window;
  * - `staff`: a signed-in user, or the technician mode (the technician menu works without a user);
  * - `handler`: the rule depends on the input or the start-up state, the handler checks it itself.
  */
-export type ChannelAuth = 'public' | 'session' | 'technician' | 'staff' | 'handler' | { permission: Permission }
+export type ChannelAuth = 'public' | 'session' | 'technician' | 'staff' | 'handler' | { permission: Permission; orTechnician?: true }
 
 export interface ChannelDef<I extends z.ZodType = z.ZodType, O = unknown> {
   /** Validated in the main process; a failure is `invalid_input` and the handler never runs. */

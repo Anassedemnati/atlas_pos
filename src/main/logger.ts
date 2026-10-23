@@ -8,7 +8,7 @@ export interface Logger {
   info: LogFn
   warn: LogFn
   error: LogFn
-  /** Writes out what is buffered (before the process exits). */
+  /** Writes out what is buffered (before the process exits). Never throws. */
   flush(): void
 }
 
@@ -35,10 +35,20 @@ export function createConsoleLogger(): Logger {
   return fromPino(pino({ base: undefined }, pino.destination(2)), () => {})
 }
 
-/** JSON lines in `<logs>/app.log` (the technician's Journal reads it); also on standard error in development. */
+/**
+ * JSON lines in `<logs>/app.log` (the technician's Journal reads it); also on standard error in development.
+ * Written synchronously: a till logs little, and a line written just before a crash must be on disk (an
+ * asynchronous file is not even open during the first milliseconds, and cannot be flushed then).
+ */
 export function createFileLogger(logsDir: string, alsoConsole: boolean): Logger {
-  const file = pino.destination({ dest: join(logsDir, 'app.log'), mkdir: true, sync: false })
+  const file = pino.destination({ dest: join(logsDir, 'app.log'), mkdir: true, sync: true })
   const streams: pino.StreamEntry[] = [{ stream: file }]
   if (alsoConsole) streams.push({ stream: pino.destination(2) })
-  return fromPino(pino({ base: { pid: process.pid } }, pino.multistream(streams)), () => file.flushSync())
+  return fromPino(pino({ base: { pid: process.pid } }, pino.multistream(streams)), () => {
+    try {
+      file.flushSync()
+    } catch {
+      // "sonic boom is not ready yet": the file is not open yet, there is nothing to flush.
+    }
+  })
 }

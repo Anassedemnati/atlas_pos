@@ -80,17 +80,18 @@ function fakeServices(over: Partial<Record<string, unknown>> = {}) {
   return { services: services as unknown as Services, user }
 }
 
-function harness(services: Services | null = fakeServices().services) {
+function harness(services: Services | null = fakeServices().services, options: { safeMode?: boolean } = {}) {
   const log: Logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), flush: vi.fn() }
   const runtime = {
     services: () => services,
-    status: () => ({ report: null, startupError: null, route: '#/login', safeMode: false, ready: services !== null }),
+    status: () => ({ report: null, startupError: null, route: '#/login', safeMode: options.safeMode ?? false, ready: services !== null }),
     restore: vi.fn()
   } as unknown as Runtime
-  const deps = { paths: { backups: '/nowhere' } as DataPaths, runtime, shell: {} as ShellPorts, log }
+  const shell = { quitToDesktop: vi.fn(), restartNormally: vi.fn() }
+  const deps = { paths: { backups: '/nowhere' } as DataPaths, runtime, shell: shell as unknown as ShellPorts, log }
   const sessions: SessionStore = createSessionStore()
   const call = (channel: Channel, input: unknown, windowId = 1) => dispatch(channel, windowId, input, deps, sessions)
-  return { call, log, sessions, deps }
+  return { call, log, sessions, deps, shell }
 }
 
 describe('register', () => {
@@ -173,7 +174,53 @@ describe('register', () => {
       ok: false,
       error: { code: 'forbidden', params: { permission: 'catalog.manage' } }
     })
-    expect(await call('app.quitToDesktop', {})).toMatchObject({ ok: false, error: { code: 'forbidden' } })
+  })
+
+  it('keeps printer and backup actions to a manager (settings.manage) or the technician', async () => {
+    const { call, sessions } = harness()
+    sessions.signIn(1, 'u1')
+    for (const [channel, input] of [
+      ['printing.reprintJob', { jobId: 'j1' }],
+      ['printing.dismissJob', { jobId: 'j1' }],
+      ['hardware.testPrinter', { printerId: 'p1' }],
+      ['backup.run', {}]
+    ] as const) {
+      expect(await call(channel, input), channel).toMatchObject({ ok: false, error: { code: 'forbidden', params: { permission: 'settings.manage' } } })
+    }
+  })
+
+  it('lets anyone leave a till with no database (setup, recovery), and only the technician otherwise', async () => {
+    vi.useFakeTimers()
+    try {
+      const empty = harness(null)
+      expect(await empty.call('app.quitToDesktop', {})).toEqual({ ok: true, value: true })
+      vi.runAllTimers()
+      expect(empty.shell.quitToDesktop).toHaveBeenCalledOnce()
+
+      const running = harness()
+      running.sessions.signIn(1, 'u1')
+      expect(await running.call('app.quitToDesktop', {})).toMatchObject({ ok: false, error: { code: 'forbidden' } })
+      running.sessions.setTechnician(1)
+      expect(await running.call('app.quitToDesktop', {})).toEqual({ ok: true, value: true })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('restarts normally only from safe mode', async () => {
+    vi.useFakeTimers()
+    try {
+      const normal = harness(null)
+      expect(await normal.call('app.restartNormally', {})).toMatchObject({ ok: false, error: { code: 'not_in_safe_mode' } })
+      const safe = harness(fakeServices().services, { safeMode: true })
+      expect(await safe.call('app.restartNormally', {})).toMatchObject({ ok: false, error: { code: 'not_signed_in' } })
+      safe.sessions.signIn(1, 'u1')
+      expect(await safe.call('app.restartNormally', {})).toEqual({ ok: true, value: true })
+      vi.runAllTimers()
+      expect(safe.shell.restartNormally).toHaveBeenCalledOnce()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('answers app_not_ready for the use cases while no database is open', async () => {

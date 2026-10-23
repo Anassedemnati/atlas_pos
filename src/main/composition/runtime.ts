@@ -109,10 +109,12 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         const result = await restoreBackup({ file }, paths, {
           clock,
           log: log.info,
-          ...(before ? { close: () => (before.db.close(), (closed = true)) } : {})
+          // Calls arriving from now on get `app_not_ready`, not a closed database.
+          ...(before ? { close: () => ((current = null), before.db.close(), (closed = true)) } : {})
         })
         if (before && !closed) {
           // Refused before anything moved: the same database, the same services.
+          current = before
           startCurrent()
           return result.ok ? { ok: true, value: { route: status().route } } : result
         }

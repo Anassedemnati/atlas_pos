@@ -6,8 +6,16 @@ import { def, id, none } from './define'
 export const appChannels = {
   /** How this run started and which route the till window was opened on. */
   'app.startupReport': def<AppStatusDto>()(none, 'public'),
-  /** Closes the application (the watchdog does not restart it). Technician only. */
-  'app.quitToDesktop': def<true>()(none, 'technician'),
+  /**
+   * Closes the application (the watchdog does not restart it). The technician mode, or no database open
+   * (a till stuck on the setup or recovery screen must not trap the person in front of it).
+   */
+  'app.quitToDesktop': def<true>()(none, 'handler'),
+  /**
+   * Leaves safe mode: the application quits and the watchdog starts it normally. A signed-in user or the
+   * technician mode, or no database open; refused (`not_in_safe_mode`) outside safe mode.
+   */
+  'app.restartNormally': def<true>()(none, 'handler'),
   /**
    * A folder chosen in the system dialog, or null when cancelled; the path is then usable by `backup.list`.
    * The dialogs need a signed-in user or the technician mode, except while no database is open (setup, recovery).

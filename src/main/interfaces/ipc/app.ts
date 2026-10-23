@@ -1,5 +1,6 @@
 import type { appChannels } from '@shared/ipc/app'
-import { ok, requireUserOrNoDatabase, type Handlers } from './context'
+import { refuse } from '../../application/usecases/users/outcome'
+import { ok, requireTechnicianOrNoDatabase, requireUserOrNoDatabase, type Handlers } from './context'
 
 /** The shell: start-up report, leaving the kiosk, dialogs, customer display. */
 export const appHandlers: Handlers<keyof typeof appChannels> = {
@@ -14,10 +15,18 @@ export const appHandlers: Handlers<keyof typeof appChannels> = {
       version: shell.appVersion
     })
   },
-  'app.quitToDesktop': (_input, _ctx, { shell, log }) => {
+  'app.quitToDesktop': (_input, ctx, { shell, log }) => {
+    requireTechnicianOrNoDatabase(ctx)
     log.info('app.quit_to_desktop')
     // After the answer has gone back to the window.
     setTimeout(() => shell.quitToDesktop(), 0)
+    return ok(true as const)
+  },
+  'app.restartNormally': (_input, ctx, { runtime, shell, log }) => {
+    requireUserOrNoDatabase(ctx)
+    if (!runtime.status().safeMode) return refuse('not_in_safe_mode')
+    log.info('app.restart_normally')
+    setTimeout(() => shell.restartNormally(), 0)
     return ok(true as const)
   },
   'system.pickFolder': async ({ title }, ctx, { shell }) => {

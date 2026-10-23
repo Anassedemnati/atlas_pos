@@ -1,23 +1,32 @@
 // The watchdog. Run as `process.execPath` with ELECTRON_RUN_AS_NODE=1 (plain Node, no window): it starts
 // the application with `--child`, restarts it 1 s after a crash, and after 3 crashes within 5 minutes
-// starts it with `--safe-mode`. A clean exit (code 0: quit to desktop, the OS logging out) ends it too.
-// Production only; `main/index.ts` relaunches itself under it.
+// starts it with `--safe-mode` (see `onChildExit`). A clean exit (code 0: quit to desktop, the OS logging
+// out) ends it too; exit code 75 asks for a normal start again. Production only; `main/index.ts`
+// relaunches itself under it.
 import { spawn } from 'node:child_process'
-import { appendFileSync, mkdirSync } from 'node:fs'
+import { appendFileSync, mkdirSync, renameSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { resolveDataDir } from './paths'
-import { RESTART_DELAY_MS, nextAction } from './supervisor-policy'
+import { initialState, onChildExit } from './supervisor-policy'
 
 const logsDir = join(resolveDataDir(process.env, process.platform), 'logs')
 const forwarded = process.argv.slice(2).filter((arg) => arg !== '--child' && arg !== '--safe-mode')
-const crashTimes: number[] = []
+/** `supervisor.log` is rotated to `supervisor.log.1` past this size. */
+const MAX_LOG_BYTES = 1024 * 1024
+let state = initialState()
 let stopping = false
 let child: ReturnType<typeof spawn> | null = null
 
 function log(message: string): void {
   try {
     mkdirSync(logsDir, { recursive: true })
-    appendFileSync(join(logsDir, 'supervisor.log'), `${new Date().toISOString()} ${message}\n`)
+    const file = join(logsDir, 'supervisor.log')
+    try {
+      if (statSync(file).size > MAX_LOG_BYTES) renameSync(file, `${file}.1`)
+    } catch {
+      // No log yet.
+    }
+    appendFileSync(file, `${new Date().toISOString()} ${message}\n`)
   } catch {
     // Nowhere to write: keep supervising anyway.
   }
@@ -49,15 +58,15 @@ function launch(safeMode: boolean): void {
 
 function onExit(code: number | null, signal: NodeJS.Signals | null): void {
   child = null
-  if (stopping || code === 0) {
+  const next = onChildExit(state, stopping ? 0 : code, Date.now())
+  state = next.state
+  const { decision } = next
+  if (decision.kind === 'stop') {
     log(`exit code=${code} signal=${signal}: stopping`)
     process.exit(0)
   }
-  const now = Date.now()
-  crashTimes.push(now)
-  const action = nextAction(crashTimes, now)
-  log(`crash code=${code} signal=${signal}: ${action}`)
-  setTimeout(() => launch(action === 'safe-mode'), RESTART_DELAY_MS)
+  log(`exit code=${code} signal=${signal}: ${decision.safeMode ? 'safe-mode' : 'restart'} in ${decision.delayMs} ms`)
+  setTimeout(() => launch(decision.safeMode), decision.delayMs)
 }
 
 // The OS shutting down (or a service manager) stops the supervisor: stop the application with it,

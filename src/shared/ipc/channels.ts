@@ -10,6 +10,7 @@ export const EVENT_CHANNEL = 'atlas:event'
 export const CHANNELS = [
   'app.startupReport',
   'app.quitToDesktop',
+  'app.restartNormally',
   'system.pickFolder',
   'system.pickFile',
   'display.update',

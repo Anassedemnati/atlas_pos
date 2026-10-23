@@ -17,6 +17,8 @@ export interface ShellPorts {
   pickFile(windowId: number, options: { title?: string; extensions?: string[] }): Promise<string | null>
   /** Ends the application for good (the watchdog does not restart a clean exit). */
   quitToDesktop(): void
+  /** Quits so that the watchdog starts the application again normally (out of safe mode). */
+  restartNormally(): void
   detectHardware(): Promise<HardwareDto>
   /** Sends the order to the customer display, if there is one. */
   showOnDisplay(order: OrderDto | null): void
@@ -29,6 +31,8 @@ export interface IpcDeps {
   runtime: Pick<Runtime, 'status' | 'services' | 'restore'>
   shell: ShellPorts
   log: Logger
+  /** Written synchronously to `logs/fatal.log`: what must survive the next crash (a restore nobody signed in for). */
+  durableLog?: (event: string, data?: Record<string, unknown>) => void
 }
 
 /** One call, from one window. */
@@ -72,6 +76,12 @@ export function overrideToken(id: string | undefined): OverrideToken | undefined
 export function requireUserOrNoDatabase(ctx: CallContext): void {
   if (ctx.noDatabase() || ctx.sessions.isTechnician(ctx.windowId)) return
   ctx.session()
+}
+
+/** The technician mode, or no database open (nobody can sign in there). */
+export function requireTechnicianOrNoDatabase(ctx: CallContext): void {
+  if (ctx.noDatabase() || ctx.sessions.isTechnician(ctx.windowId)) return
+  throw new AppErrorException('forbidden', { reason: 'technician' })
 }
 
 export function createCallContext(windowId: number, sessions: SessionStore, deps: IpcDeps): CallContext {

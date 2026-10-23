@@ -9,12 +9,13 @@ import { createBackupEngine, type BackupEngine } from '../infrastructure/backup/
 import { targetsFromDestinations, type BackupTarget } from '../infrastructure/backup/targets'
 import { openDatabase, type Database } from '../infrastructure/db/connection'
 import { migrate } from '../infrastructure/db/migrate'
+import { backupBeforeMigration } from '../infrastructure/db/pre-migration-backup'
 import { createSettingsRepo, type SettingsRepo } from '../infrastructure/db/repos/settings-repo'
 import { createUsersRepo, type UsersRepo } from '../infrastructure/db/repos/users-repo'
 import { createUnitOfWork, type UnitOfWork } from '../infrastructure/db/uow'
 import { createPrintService, type PrintService } from '../infrastructure/printing/service'
 import type { HtmlPrinter, RenderHtmlToBitmap } from '../infrastructure/printing/types'
-import type { Logger } from '../logger'
+import { describeError, type Logger } from '../logger'
 import type { DataPaths } from '../paths'
 
 const STOP_WAIT_MS = 10_000
@@ -74,6 +75,8 @@ export function openServices(deps: ServicesDeps): Services {
   const { paths, clock, bus, log } = deps
   const db = openDatabase(paths.dbFile)
   try {
+    const preMigration = backupBeforeMigration(db, paths, clock)
+    if (preMigration) log.info('db.pre_migration_backup', preMigration)
     const migrated = migrate(db)
     if (migrated.from !== migrated.to) log.info('db.migrated', migrated)
     const uow = createUnitOfWork(db, clock, bus)
@@ -112,7 +115,9 @@ export function openServices(deps: ServicesDeps): Services {
         const unsubscribe = bus.subscribe('ticket.closed', () => backup.onTicketClosed())
         if (printing) print.queue.start()
         backup.start()
-        const poll = setInterval(() => void backup.retryPending(), USB_POLL_MS)
+        const poll = setInterval(() => {
+          backup.retryPending().catch((error: unknown) => log.error('backup.retry_failed', describeError(error)))
+        }, USB_POLL_MS)
         poll.unref?.()
         running = () => {
           unsubscribe()

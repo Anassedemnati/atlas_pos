@@ -36,7 +36,7 @@ function authorize(auth: ChannelAuth, ctx: CallContext): void {
     if (!technician) throw new AppErrorException('forbidden', { reason: 'technician' })
     return
   }
-  if (auth === 'staff' && technician) return
+  if ((auth === 'staff' || (typeof auth === 'object' && auth.orTechnician)) && technician) return
   const session = ctx.session()
   if (typeof auth === 'object') requirePermission(session, auth.permission)
 }

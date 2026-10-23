@@ -4,6 +4,7 @@ import { EVENT_CHANNEL } from '@shared/ipc/channels'
 import { detectHardware } from '../infrastructure/hardware/detect'
 import { listSystemPrinters } from '../infrastructure/printing/electron/system-printers'
 import type { ShellPorts } from '../interfaces/ipc/context'
+import { describeError, type Logger } from '../logger'
 import { loadRoute, type WindowConfig } from './windows'
 
 /** The application windows (not the hidden printing helpers). */
@@ -29,7 +30,14 @@ async function openDialog(windowId: number, options: OpenDialogOptions): Promise
 }
 
 /** Electron's side of the IPC handlers: dialogs, hardware, the customer display, reloading the till. */
-export function createShellPorts(deps: { windows: AppWindows; config: WindowConfig; appVersion: string; quit: () => void }): ShellPorts {
+export function createShellPorts(deps: {
+  windows: AppWindows
+  config: WindowConfig
+  appVersion: string
+  log: Logger
+  quit: () => void
+  restartNormally: () => void
+}): ShellPorts {
   const { windows, config } = deps
   return {
     appVersion: deps.appVersion,
@@ -42,6 +50,7 @@ export function createShellPorts(deps: { windows: AppWindows; config: WindowConf
         ...(extensions ? { filters: [{ name: extensions.join(', '), extensions }] } : {})
       }),
     quitToDesktop: deps.quit,
+    restartNormally: deps.restartNormally,
     detectHardware: () =>
       detectHardware({
         listSystemPrinters,
@@ -55,7 +64,10 @@ export function createShellPorts(deps: { windows: AppWindows; config: WindowConf
       const till = windows.till()
       if (!alive(till)) return
       // Through a blank page: a new document, so nothing of the previous database stays in the renderer.
-      void till.loadURL('about:blank').then(() => loadRoute(till, route, config))
+      till
+        .loadURL('about:blank')
+        .then(() => loadRoute(till, route, config))
+        .catch((error: unknown) => deps.log.warn('till.navigate_failed', { route, ...describeError(error) }))
     }
   }
 }

@@ -1,3 +1,4 @@
+import { pathToFileURL } from 'node:url'
 import { BrowserWindow, screen } from 'electron'
 import { kioskOptions, lockDown } from './kiosk'
 
@@ -20,21 +21,35 @@ const webPreferences = (config: WindowConfig): Electron.WebPreferences => ({
   preload: config.preload,
   contextIsolation: true,
   sandbox: true,
-  nodeIntegration: false
+  nodeIntegration: false,
+  devTools: config.dev
 })
 
-/** Loads the renderer on a hash route (`#/login`). */
-export function loadRoute(window: BrowserWindow, route: string, config: WindowConfig): Promise<void> {
+/**
+ * Loads the renderer on a hash route (`#/login`). A load replaced by another one (`ERR_ABORTED`) is not
+ * an error: the newer load wins.
+ */
+export async function loadRoute(window: BrowserWindow, route: string, config: WindowConfig): Promise<void> {
   const hash = route.replace(/^#/, '')
-  return config.devServerUrl ? window.loadURL(`${config.devServerUrl}#${hash}`) : window.loadFile(config.indexFile, { hash })
+  try {
+    await (config.devServerUrl ? window.loadURL(`${config.devServerUrl}#${hash}`) : window.loadFile(config.indexFile, { hash }))
+  } catch (error) {
+    if ((error as { code?: unknown }).code !== 'ERR_ABORTED') throw error
+  }
+}
+
+/** The renderer's own document, whatever its hash: the only page an application window may show. */
+function isRendererUrl(url: string, config: WindowConfig): boolean {
+  const withoutHash = url.split('#')[0] ?? ''
+  if (config.devServerUrl) return withoutHash === config.devServerUrl || withoutHash === `${config.devServerUrl.replace(/\/$/, '')}/`
+  return withoutHash === pathToFileURL(config.indexFile).href
 }
 
 /** The renderer stays on its own page: no navigation away, no new window. */
 function confine(window: BrowserWindow, config: WindowConfig): void {
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   window.webContents.on('will-navigate', (event, url) => {
-    const allowed = config.devServerUrl ? url.startsWith(config.devServerUrl) : url.startsWith('file://')
-    if (!allowed) event.preventDefault()
+    if (!isRendererUrl(url, config)) event.preventDefault()
   })
   if (!config.dev) lockDown(window)
 }
@@ -76,6 +91,8 @@ export function createCustomerDisplay(config: WindowConfig): BrowserWindow | nul
     webPreferences: webPreferences(config)
   })
   confine(window, config)
-  void loadRoute(window, '#/display', config)
+  loadRoute(window, '#/display', config).catch(() => {
+    // The display stays blank; the till does not depend on it.
+  })
   return window
 }

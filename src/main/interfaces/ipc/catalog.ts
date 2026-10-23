@@ -23,6 +23,6 @@ export const catalogHandlers: Handlers<keyof typeof catalogChannels> = {
   'catalog.exportSheet': ({ format }, ctx) => {
     const buffer = ctx.services().catalog.exportCatalogSheet(format)
     // A copy: a view on the Buffer's pool would carry the whole pool across IPC.
-    return ok({ bytes: Uint8Array.from(buffer), fileName: `catalogue.${format}` })
+    return ok({ bytes: new Uint8Array(buffer), fileName: `catalogue.${format}` })
   }
 }

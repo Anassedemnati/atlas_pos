@@ -7,7 +7,6 @@ import { app, BrowserWindow, ipcMain } from 'electron'
 import { createEventBus } from './application/events'
 import { runBootCheck } from './boot-check'
 import { createRuntime, type Runtime } from './composition/runtime'
-import { defaultOf } from './domain/config/settings-registry'
 import { createElectronHtmlPrinter } from './infrastructure/printing/electron/os-print'
 import { renderHtmlToBitmap } from './infrastructure/printing/electron/render-html-to-bitmap'
 import { forwardEvents } from './interfaces/ipc/events'
@@ -15,12 +14,14 @@ import { register } from './interfaces/ipc/register'
 import { createSessionStore, type SessionStore } from './interfaces/ipc/session-store'
 import { setAutostart } from './lifecycle/autostart'
 import { startBackoffice } from './lifecycle/backoffice'
+import { setDurableLogDir, writeDurable } from './lifecycle/fatal'
 import { acquireInstanceLock } from './lifecycle/instance-lock'
 import { acquireRunningLock, type RunningLock } from './lifecycle/running-lock'
 import { createShellPorts, sendToWindows, type AppWindows } from './lifecycle/shell-ports'
 import { createCustomerDisplay, createTillWindow, loadRoute, type WindowConfig } from './lifecycle/windows'
 import { createConsoleLogger, createFileLogger, describeError, type Logger } from './logger'
 import { ensureDataLayout, resolveDataDir } from './paths'
+import { RESTART_NORMALLY_EXIT_CODE } from './supervisor-policy'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const dev = !app.isPackaged
@@ -47,6 +48,14 @@ let quitting = false
 let cleanedUp = false
 /** Set by `app.quit()` (quit to desktop, OS shutdown): only then may a kiosk till window close. */
 let quitRequested = false
+/** The code the process exits with after a clean quit: 0, or "start me again normally" for the watchdog. */
+let exitCode = 0
+/** `start()` has finished: a failure after this point no longer means the application cannot start. */
+let started = false
+/** Crashes of the till renderer: reloaded, unless it keeps crashing. */
+const rendererCrashes: number[] = []
+const RENDERER_CRASH_LIMIT = 3
+const RENDERER_CRASH_WINDOW_MS = 60_000
 const windows: AppWindows = { till: () => till, display: () => display }
 
 /**
@@ -57,6 +66,41 @@ const windows: AppWindows = { till: () => till, display: () => display }
 function relaunchUnderSupervisor(): void {
   const env = { ...process.env, ELECTRON_RUN_AS_NODE: '1' }
   spawn(process.execPath, [join(here, 'supervisor.js'), ...process.argv.slice(1)], { env, detached: true, stdio: 'ignore' }).unref()
+}
+
+/**
+ * The end of a run that cannot go on: the reason is written synchronously (the asynchronous log may not
+ * even be open yet), then the process exits with 1, which the watchdog counts as a crash. Never throws.
+ */
+function die(event: string, error: unknown): void {
+  writeDurable(event, describeError(error))
+  try {
+    log.error(event, describeError(error))
+    log.flush()
+  } catch {
+    // The durable line is written already.
+  }
+  try {
+    if (exitAfterBoot) process.stdout.write(`ATLAS_BOOT_FAIL ${event}: ${String(error)}\n`)
+  } finally {
+    app.exit(1)
+  }
+}
+
+/** Runs a step the till can live without (customer display, autostart, back office): a failure is logged. */
+function optional(step: string, run: () => void): void {
+  try {
+    run()
+  } catch (error) {
+    log.error('app.optional_step_failed', { step, ...describeError(error) })
+  }
+}
+
+/** Quits so that the watchdog starts the application again normally; in development, relaunches it. */
+function restartNormally(): void {
+  if (isChild) exitCode = RESTART_NORMALLY_EXIT_CODE
+  else app.relaunch({ args: process.argv.slice(1).filter((arg) => arg !== '--safe-mode') })
+  app.quit()
 }
 
 /** The window's session ends with its document: closed, crashed, or loaded anew (not a hash route change). */
@@ -71,7 +115,9 @@ function trackSessions(window: BrowserWindow, sessions: SessionStore): void {
 
 async function start(): Promise<void> {
   // 1. Paths and the log file (the single-instance lock is already held).
-  const paths = ensureDataLayout(resolveDataDir(process.env, process.platform))
+  const dataDir = resolveDataDir(process.env, process.platform)
+  setDurableLogDir(join(dataDir, 'logs'))
+  const paths = ensureDataLayout(dataDir)
   log = createFileLogger(paths.logs, dev && !exitAfterBoot)
   log.info('app.start', { version: app.getVersion(), packaged: app.isPackaged, safeMode, dataDir: paths.root })
   // 2. The running lock: left behind, it says the previous run did not quit cleanly.
@@ -97,12 +143,20 @@ async function start(): Promise<void> {
 
   // 4. The IPC contract, sessions per window, events to the windows.
   const sessions = createSessionStore()
-  const shell = createShellPorts({ windows, config: windowConfig, appVersion: app.getVersion(), quit: () => app.quit() })
-  register(ipcMain, { paths, runtime: current, shell, log }, sessions)
+  const shell = createShellPorts({
+    windows,
+    config: windowConfig,
+    appVersion: app.getVersion(),
+    log,
+    quit: () => app.quit(),
+    restartNormally
+  })
+  register(ipcMain, { paths, runtime: current, shell, log, durableLog: writeDurable }, sessions)
   forwardEvents(bus, (event) => sendToWindows(windows, event))
 
-  // 5. The till window, on the route the start-up decided.
-  const kiosk = !safeMode && (services ? services.settings.get('kiosk.enabled') : defaultOf('kiosk.enabled'))
+  // 5. The till window, on the route the start-up decided. No kiosk while no database is open (setup,
+  // recovery): there is no technician code yet, or none readable, to leave it with.
+  const kiosk = !safeMode && services !== null && services.settings.get('kiosk.enabled')
   till = createTillWindow(windowConfig, kiosk)
   trackSessions(till, sessions)
   if (kiosk && !dev) {
@@ -117,30 +171,45 @@ async function start(): Promise<void> {
     till = null
     app.quit()
   })
-  // A crashed renderer comes back on the same route rather than leaving a blank till.
+  // A crashed renderer comes back on the same route rather than leaving a blank till; one that keeps
+  // crashing (3 times within a minute) ends the run, for the watchdog to take over.
   till.webContents.on('render-process-gone', (_event, details) => {
     log.error('till.renderer_gone', { reason: details.reason })
-    if (till && !till.isDestroyed()) void loadRoute(till, current.status().route, windowConfig)
+    const now = Date.now()
+    rendererCrashes.push(now)
+    while (rendererCrashes.length > 0 && now - (rendererCrashes[0] ?? now) > RENDERER_CRASH_WINDOW_MS) rendererCrashes.shift()
+    if (rendererCrashes.length >= RENDERER_CRASH_LIMIT) return die('till.renderer_crash_loop', new Error(details.reason))
+    if (till && !till.isDestroyed()) {
+      loadRoute(till, current.status().route, windowConfig).catch((error: unknown) =>
+        log.error('till.reload_failed', describeError(error))
+      )
+    }
   })
   if (exitAfterBoot) runBootCheck(till)
   log.info('app.route', { route: status.route })
   await loadRoute(till, status.route, windowConfig)
 
   // 6. Background work, only now: printing renders in hidden windows, which must never be the last ones.
-  current.startBackground()
-  if (services && !safeMode && services.settings.get('display.customerEnabled')) {
-    display = createCustomerDisplay(windowConfig)
-    if (display) {
-      trackSessions(display, sessions)
-      display.on('closed', () => (display = null))
-    }
+  // None of it is needed to sell: a failure is logged and the till carries on.
+  optional('background', () => current.startBackground())
+  if (services && !safeMode) {
+    optional('customer-display', () => {
+      if (!services.settings.get('display.customerEnabled')) return
+      display = createCustomerDisplay(windowConfig)
+      if (display) {
+        trackSessions(display, sessions)
+        display.on('closed', () => (display = null))
+      }
+    })
   }
-  if (services && services.settings.get('backoffice.enabled')) stopBackoffice = startBackoffice({ runtime: current, log })
   if (services) {
-    setAutostart(services.settings.get('autostart.enabled'))
+    optional('backoffice', () => {
+      if (services.settings.get('backoffice.enabled')) stopBackoffice = startBackoffice({ runtime: current, log })
+    })
+    optional('autostart', () => setAutostart(services.settings.get('autostart.enabled')))
     bus.subscribe('settings.changed', ({ keys }) => {
       const now = current.services()
-      if (now && keys.includes('autostart.enabled')) setAutostart(now.settings.get('autostart.enabled'))
+      if (now && keys.includes('autostart.enabled')) optional('autostart', () => setAutostart(now.settings.get('autostart.enabled')))
     })
   }
 }
@@ -153,8 +222,13 @@ async function shutdown(): Promise<void> {
   } catch (error) {
     log.error('app.shutdown_failed', describeError(error))
   }
-  runningLock?.release()
-  log.info('app.quit')
+  try {
+    runningLock?.release()
+  } catch (error) {
+    // The next start will report an unclean shutdown: harmless, it only checks more.
+    log.error('app.lock_release_failed', describeError(error))
+  }
+  log.info('app.quit', { exitCode })
   log.flush()
 }
 
@@ -165,6 +239,12 @@ if (!dev && !isChild && !exitAfterBoot) {
   // Another copy is running: it shows its till window.
   app.exit(0)
 } else {
+  // Anything thrown outside a handler: written down, then a crash for the watchdog to restart.
+  process.on('uncaughtException', (error) => die('app.uncaught_exception', error))
+  process.on('unhandledRejection', (reason) => {
+    if (!started) return die('app.unhandled_rejection', reason)
+    log.error('app.unhandled_rejection', describeError(reason))
+  })
   app.on('before-quit', () => (quitRequested = true))
   app.on('window-all-closed', () => {
     // Hidden printing windows come and go: only the till window's end quits.
@@ -175,15 +255,22 @@ if (!dev && !isChild && !exitAfterBoot) {
     event.preventDefault()
     if (quitting) return
     quitting = true
-    void shutdown().finally(() => {
-      cleanedUp = true
-      app.exit(0)
+    void shutdown()
+      .catch(() => {})
+      .finally(() => {
+        cleanedUp = true
+        app.exit(exitCode)
+      })
+  })
+  app
+    .whenReady()
+    .then(start)
+    .then(() => (started = true))
+    .catch((error: unknown) => {
+      try {
+        die('app.start_failed', error)
+      } finally {
+        app.exit(1)
+      }
     })
-  })
-  app.whenReady().then(start).catch((error: unknown) => {
-    log.error('app.start_failed', describeError(error))
-    log.flush()
-    if (exitAfterBoot) process.stdout.write(`ATLAS_BOOT_FAIL start: ${String(error)}\n`)
-    app.exit(1)
-  })
 }

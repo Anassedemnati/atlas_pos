@@ -97,12 +97,18 @@ export const systemHandlers: Handlers<SystemChannel> = {
     requireBackupAccess(ctx, deps, true)
     const listed = await backupsFor(ctx, deps, folder)
     if (!listed.some((entry) => entry.file === file)) return refuse('backup_not_found')
-    deps.log.info('restore.requested', { file, by: ctx.optionalSession()?.userId ?? null })
+    const by = ctx.noDatabase() ? null : (ctx.optionalSession()?.userId ?? null)
+    deps.log.info('restore.requested', { file, folder: folder ?? null, by })
+    // A corrupt database has no readable users, so its restore needs no sign-in (the person is at the
+    // till): it is recorded where it survives anything.
+    if (ctx.noDatabase()) deps.durableLog?.('restore.unauthenticated', { file, folder: folder ?? null })
     const result = await deps.runtime.restore(file)
     if (!result.ok) return result
     // The users and their rights are the backup's now: everyone signs in again.
     ctx.sessions.clear()
-    deps.shell.navigateTill(result.value.route)
+    // In safe mode the restore is the way out: start again normally (the watchdog does).
+    if (deps.runtime.status().safeMode) setTimeout(() => deps.shell.restartNormally(), 0)
+    else deps.shell.navigateTill(result.value.route)
     return result
   },
 
