@@ -46,9 +46,10 @@ const escapeXml = (text: string): string => text.replace(/&/g, '&amp;').replace(
 
 /**
  * An XLSX written by hand, so that its `dimension` can say anything (SheetJS would write every cell
- * of a big range). Cells are inline strings in columns A to Z; `rows[0]` is row 1.
+ * of a big range). Cells are inline strings in columns A to Z; `rows[0]` is row 1. `dataDescriptor`
+ * leaves the sizes of every file to a descriptor after its data, as Excel writes them.
  */
-export function xlsxWithDimension(rows: string[][], dimension: string): Buffer {
+export function xlsxWithDimension(rows: string[][], dimension: string, { dataDescriptor = false } = {}): Buffer {
   const sheetData = rows
     .map((cells, r) => {
       const xml = cells
@@ -59,7 +60,11 @@ export function xlsxWithDimension(rows: string[][], dimension: string): Buffer {
     .join('')
   const main = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'
   const rel = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
-  const file = (name: string, xml: string) => ({ name, data: Buffer.from(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>${xml}`) })
+  const file = (name: string, xml: string) => ({
+    name,
+    data: Buffer.from(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>${xml}`),
+    dataDescriptor
+  })
   return zipOf([
     file(
       '[Content_Types].xml',
