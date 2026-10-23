@@ -30,3 +30,20 @@ export function openDatabase(file: string): Database {
     throw error
   }
 }
+
+/**
+ * A read-only handle on an existing database file, for inspecting it without any chance of
+ * changing it: start-up checks, and a database written by a newer app that must not be touched.
+ * It sets no pragma that writes (no `journal_mode`), never creates the file, and cannot run
+ * INSERT/UPDATE/DELETE. It can still read data that is only in the `-wal` file.
+ */
+export function openDatabaseReadOnly(file: string): Database {
+  const db = new BetterSqlite3(file, { readonly: true, fileMustExist: true })
+  try {
+    db.pragma('busy_timeout = 5000')
+    return db
+  } catch (error) {
+    db.close()
+    throw error
+  }
+}
