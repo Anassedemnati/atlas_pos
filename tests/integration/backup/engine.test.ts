@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, truncateSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createEventBus } from '../../../src/main/application/events'
@@ -13,16 +13,23 @@ import {
   type BackupTarget
 } from '../../../src/main/infrastructure/backup/targets'
 import { usbScan } from '../../../src/main/infrastructure/backup/usb-scan'
+import { sha256File } from '../../../src/main/infrastructure/backup/snapshot'
 import {
   addProducts,
   backupFixture,
   manualClock,
   manualScheduler,
+  markedFolder,
+  writeMarker,
   type BackupFixture,
   type ManualClock
 } from '../../helpers/backup'
 
 const HOUR = 60 * 60 * 1000
+
+/** A NAS folder target whose folder was never marked (an unmounted mount point). */
+const folderTargetUnmarked = (id: string, path: string): BackupTarget =>
+  folderTarget({ id, role: 'nas', path, targetKey: `key-${id}` })
 
 describe('BackupEngine', () => {
   let fx: BackupFixture
@@ -76,10 +83,10 @@ describe('BackupEngine', () => {
   it('coalesces 5 ticket closes within 60 s into one live copy that holds all of them', async () => {
     const disk = fx.newDir('disk')
     let liveWrites = 0
-    const e = makeEngine([folderTarget({ id: 'd', role: 'disk', path: disk })], {
+    const e = makeEngine([markedFolder({ id: 'd', role: 'disk', path: disk })], {
       io: {
         copyFile: async (src, dest) => {
-          if (dest.endsWith('atlas-live.atlasbak')) liveWrites++
+          if (dest.endsWith('atlas-live.atlasbak.part')) liveWrites++
           await copyFileAtomic(src, dest)
         }
       }
@@ -110,7 +117,8 @@ describe('BackupEngine', () => {
     timers.advance(60_000)
     await e.idle()
     expect(liveWrites).toBe(2)
-    expect(runRows().map((r) => r.kind)).toEqual(['live', 'live'])
+    // One live row, updated in place: the table does not grow every minute.
+    expect(runRows().map((r) => r.kind)).toEqual(['live'])
     expect(readdirSync(join(fx.paths.backups, 'tmp'))).toEqual([])
   })
 
@@ -118,10 +126,10 @@ describe('BackupEngine', () => {
     const disk = fx.newDir('disk')
     let release: (() => void) | undefined
     let liveWrites = 0
-    const e = makeEngine([folderTarget({ id: 'd', role: 'disk', path: disk })], {
+    const e = makeEngine([markedFolder({ id: 'd', role: 'disk', path: disk })], {
       io: {
         copyFile: async (src, dest) => {
-          if (dest.endsWith('atlas-live.atlasbak')) {
+          if (dest.endsWith('atlas-live.atlasbak.part')) {
             liveWrites++
             if (liveWrites === 1) await new Promise<void>((r) => (release = r))
           }
@@ -151,11 +159,11 @@ describe('BackupEngine', () => {
     fx.db
       .prepare('INSERT INTO settings (key, value_json, updated_at) VALUES (?, ?, ?)')
       .run('backup.continuous', 'false', clock.now().toISOString())
-    const e = makeEngine([folderTarget({ id: 'd', role: 'disk', path: disk })])
+    const e = makeEngine([markedFolder({ id: 'd', role: 'disk', path: disk })])
     e.onTicketClosed()
     timers.advance(120_000)
     await e.idle()
-    expect(existsSync(join(disk, 'AtlasBackup'))).toBe(false)
+    expect(existsSync(join(disk, 'AtlasBackup', 'live'))).toBe(false)
     expect(runRows()).toEqual([])
   })
 
@@ -163,15 +171,15 @@ describe('BackupEngine', () => {
     const disk = fx.newDir('disk')
     const nas = fx.newDir('nas')
     const e = makeEngine([
-      folderTarget({ id: 'd', role: 'disk', path: disk }),
-      folderTarget({ id: 'n', role: 'nas', path: nas })
+      markedFolder({ id: 'd', role: 'disk', path: disk }),
+      markedFolder({ id: 'n', role: 'nas', path: nas })
     ])
 
     const result = await e.runFull('full', 'Z12')
 
     expect(result.ok).toBe(true)
     if (!result.ok) return
-    expect(result.fileName).toMatch(/^atlas-\d{8}-\d{4}-full-Z12\.atlasbak$/)
+    expect(result.fileName).toMatch(/^atlas-\d{8}-\d{4}-Z12\.atlasbak$/)
     for (const root of [disk, nas]) {
       expect(existsSync(join(root, 'AtlasBackup', 'full', result.fileName))).toBe(true)
       expect(existsSync(join(root, 'AtlasBackup', 'full', `${result.fileName}.json`))).toBe(true)
@@ -189,6 +197,7 @@ describe('BackupEngine', () => {
     ])
     expect(e.status()).toEqual({
       lastOkAt: '2026-10-22T10:00:00.000Z',
+      lastError: null,
       overall: 'ok',
       perTarget: [
         { id: 'd', role: 'disk', lastOkAt: '2026-10-22T10:00:00.000Z', lastError: null, state: 'ok' },
@@ -218,7 +227,7 @@ describe('BackupEngine', () => {
     const usb = usbTarget({ id: 'u', targetKey: 'key-usb', label: 'Clé' }, (key) =>
       usbScan(key, { platform: 'linux', listCandidateRoots: async () => [mount] })
     )
-    const e = makeEngine([folderTarget({ id: 'd', role: 'disk', path: disk }), usb])
+    const e = makeEngine([markedFolder({ id: 'd', role: 'disk', path: disk }), usb])
 
     const result = await e.runFull('full')
     expect(result.ok).toBe(true)
@@ -282,7 +291,7 @@ describe('BackupEngine', () => {
     const good = fx.newDir('good')
     const full = fx.newDir('full')
     const e = makeEngine(
-      [folderTarget({ id: 'g', role: 'disk', path: good }), folderTarget({ id: 'f', role: 'nas', path: full })],
+      [markedFolder({ id: 'g', role: 'disk', path: good }), markedFolder({ id: 'f', role: 'nas', path: full })],
       {
         io: {
           copyFile: async (src, dest) => {
@@ -319,7 +328,7 @@ describe('BackupEngine', () => {
   it('a target whose last success is older than warnAfterHours is in warning', async () => {
     const disk = fx.newDir('disk')
     fx.db.prepare("INSERT INTO backup_destinations (id, role, path) VALUES ('d', 'disk', ?)").run(disk)
-    const e = makeEngine([folderTarget({ id: 'd', role: 'disk', path: disk })])
+    const e = makeEngine([markedFolder({ id: 'd', role: 'disk', path: disk })])
     await e.runFull('full')
 
     clock.advance(23 * HOUR)
@@ -334,7 +343,7 @@ describe('BackupEngine', () => {
       err: null
     })
     e.stop()
-    const restarted = makeEngine([folderTarget({ id: 'd', role: 'disk', path: disk })])
+    const restarted = makeEngine([markedFolder({ id: 'd', role: 'disk', path: disk })])
     expect(restarted.status().perTarget[0]).toEqual({
       id: 'd',
       role: 'disk',
@@ -346,7 +355,7 @@ describe('BackupEngine', () => {
 
   it('the 60 s tick publishes the warning that time alone brings', async () => {
     const disk = fx.newDir('disk')
-    const e = makeEngine([folderTarget({ id: 'd', role: 'disk', path: disk })])
+    const e = makeEngine([markedFolder({ id: 'd', role: 'disk', path: disk })])
     await e.runFull('full')
     e.start()
     events.length = 0
@@ -357,7 +366,7 @@ describe('BackupEngine', () => {
 
   it('rotates the full backups after each run, locally and on the targets', async () => {
     const disk = fx.newDir('disk')
-    const e = makeEngine([folderTarget({ id: 'd', role: 'disk', path: disk })])
+    const e = makeEngine([markedFolder({ id: 'd', role: 'disk', path: disk })])
     // 13 Jul is past retention and not its month's newest (14 Jul is): the only one to go.
     const oldName = 'atlas-20260713-0900-full.atlasbak'
     for (const dir of [fx.paths.backups, join(disk, 'AtlasBackup', 'full')]) {
@@ -378,11 +387,165 @@ describe('BackupEngine', () => {
   })
 
   it('runFull reports a failed snapshot instead of throwing', async () => {
-    const e = makeEngine([folderTarget({ id: 'd', role: 'disk', path: fx.newDir('disk') })])
+    const e = makeEngine([markedFolder({ id: 'd', role: 'disk', path: fx.newDir('disk') })])
     fx.db.close()
     const result = await e.runFull('manual')
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.error.code).toBe('backup_snapshot_failed')
     expect(readdirSync(join(fx.paths.backups, 'tmp'))).toEqual([])
+    // status() never throws, even on a closed database, and shows the failure.
+    expect(e.status()).toMatchObject({ overall: 'error', lastError: 'backup_snapshot_failed' })
+  })
+
+  it('a backup that cannot be taken is an overall error until the next one succeeds', async () => {
+    const e = makeEngine([markedFolder({ id: 'd', role: 'disk', path: fx.newDir('disk') })])
+    await e.runFull('full')
+    const tmp = join(fx.paths.backups, 'tmp')
+    rmSync(tmp, { recursive: true, force: true })
+    writeFileSync(tmp, 'a file where the tmp directory should be')
+
+    const failed = await e.runFull('manual')
+    expect(failed.ok).toBe(false)
+    expect(e.status()).toMatchObject({ overall: 'error', lastError: 'backup_snapshot_failed' })
+    expect(events.at(-1)).toEqual({ type: 'backup.status', status: 'error' })
+
+    rmSync(tmp)
+    clock.advance(60_000)
+    expect((await e.runFull('manual')).ok).toBe(true)
+    expect(e.status()).toMatchObject({ overall: 'ok', lastError: null })
+  })
+
+  it('status() falls back to the default when a setting cannot be read', async () => {
+    const e = makeEngine([markedFolder({ id: 'd', role: 'disk', path: fx.newDir('disk') })])
+    await e.runFull('full')
+    fx.db
+      .prepare('INSERT INTO settings (key, value_json, updated_at) VALUES (?, ?, ?)')
+      .run('backup.warnAfterHours', '{ broken', clock.now().toISOString())
+    clock.advance(25 * HOUR)
+    expect(e.status().perTarget[0]?.state).toBe('warning') // default 24 h
+    expect(logs.some((l) => l.event === 'backup.setting_unreadable')).toBe(true)
+  })
+
+  it('a destination that never succeeded turns amber after 24 h, across a restart', async () => {
+    fx.db
+      .prepare("INSERT INTO backup_destinations (id, role, path, target_key) VALUES ('u', 'usb', '', 'key-u')")
+      .run()
+    const usb = usbTarget({ id: 'u', targetKey: 'key-u' }, async () => null)
+    const first = makeEngine([usb])
+    expect(first.status().perTarget[0]?.state).toBe('pending')
+    // An older row without created_at gets the time it was first seen.
+    expect(fx.db.prepare("SELECT created_at AS c FROM backup_destinations WHERE id = 'u'").get()).toEqual({
+      c: '2026-10-22T10:00:00.000Z'
+    })
+    first.stop()
+
+    clock.advance(25 * HOUR)
+    const restarted = makeEngine([usbTarget({ id: 'u', targetKey: 'key-u' }, async () => null)])
+    expect(restarted.status().perTarget[0]).toMatchObject({ id: 'u', lastOkAt: null, state: 'warning' })
+    expect(restarted.status().overall).toBe('warning')
+  })
+
+  it('an unmounted NAS (an empty folder without the marker) is pending and never written to', async () => {
+    const mountPoint = fx.newDir('nas-mountpoint')
+    const nas = folderTargetUnmarked('n', mountPoint)
+    const e = makeEngine([markedFolder({ id: 'd', role: 'disk', path: fx.newDir('disk') }), nas])
+
+    const result = await e.runFull('full')
+
+    expect(result.ok && result.results[1]).toEqual({ targetId: 'n', role: 'nas', ok: false, error: 'unavailable' })
+    expect(e.status().perTarget[1]?.state).toBe('pending')
+    expect(readdirSync(mountPoint)).toEqual([])
+  })
+
+  it('retryPending never spreads a torn local copy: the destination gets local_corrupt, not ok', async () => {
+    const mount = fx.newDir('usb')
+    const usb = usbTarget({ id: 'u', targetKey: 'key-usb' }, (key) =>
+      usbScan(key, { platform: 'linux', listCandidateRoots: async () => [mount] })
+    )
+    const e = makeEngine([usb])
+    const result = await e.runFull('full')
+    if (!result.ok) throw new Error('backup failed')
+    truncateSync(result.localFile, Math.floor(result.bytes / 2)) // a power cut while the disk was writing it
+
+    writeMarker(mount, 'key-usb')
+    await e.retryPending()
+
+    expect(existsSync(join(mount, 'AtlasBackup', 'full', result.fileName))).toBe(false)
+    expect(e.status().perTarget[0]).toMatchObject({ state: 'error', lastError: 'local_corrupt' })
+    expect(JSON.parse(runRows()[0]!.results)[0]).toEqual({ targetId: 'u', role: 'usb', ok: false, error: 'local_corrupt' })
+    expect(logs.some((l) => l.event === 'backup.local_corrupt')).toBe(true)
+  })
+
+  it('a dated copy that reads back different is verify_failed and leaves nothing on the target', async () => {
+    const bad = fx.newDir('bad')
+    const e = makeEngine([markedFolder({ id: 'b', role: 'disk', path: bad })], {
+      io: {
+        copyFile: async (src, dest) => {
+          await copyFileAtomic(src, dest)
+          if (dest.endsWith('.atlasbak.part')) {
+            const bytes = readFileSync(dest)
+            bytes[10] = (bytes[10] ?? 0) ^ 0xff // flipped by a failing USB stick
+            writeFileSync(dest, bytes)
+          }
+        }
+      }
+    })
+
+    const result = await e.runFull('full')
+
+    expect(result.ok && result.results[0]).toEqual({ targetId: 'b', role: 'disk', ok: false, error: 'verify_failed' })
+    expect(readdirSync(join(bad, 'AtlasBackup', 'full'))).toEqual([])
+    expect(e.status().perTarget[0]?.state).toBe('error')
+  })
+
+  it('retryPending also delivers the live copy to a destination that missed it', async () => {
+    const mount = fx.newDir('usb')
+    const usb = usbTarget({ id: 'u', targetKey: 'key-usb' }, (key) =>
+      usbScan(key, { platform: 'linux', listCandidateRoots: async () => [mount] })
+    )
+    const e = makeEngine([usb])
+    e.onTicketClosed()
+    timers.advance(60_000)
+    await e.idle()
+    expect(JSON.parse(runRows()[0]!.results)).toEqual([{ targetId: 'u', role: 'usb', ok: false, error: 'unavailable' }])
+
+    writeMarker(mount, 'key-usb')
+    await e.retryPending()
+
+    const live = join(mount, 'AtlasBackup', 'live', 'atlas-live.atlasbak')
+    expect(existsSync(live)).toBe(true)
+    expect(JSON.parse(readFileSync(`${live}.json`, 'utf8')).sha256).toBe(await sha256File(live))
+    expect(runRows()).toHaveLength(1)
+    expect(JSON.parse(runRows()[0]!.results)).toEqual([{ targetId: 'u', role: 'usb', ok: true, file: live }])
+    expect(e.status().perTarget[0]?.state).toBe('ok')
+  })
+
+  it('a live copy that fails half way never leaves a new archive beside an old manifest', async () => {
+    const disk = fx.newDir('disk')
+    let failManifest = false
+    const e = makeEngine([markedFolder({ id: 'd', role: 'disk', path: disk })], {
+      io: {
+        copyFile: async (src, dest) => {
+          if (failManifest && dest.endsWith('.json.part')) throw Object.assign(new Error('unplugged'), { code: 'EIO' })
+          await copyFileAtomic(src, dest)
+        }
+      }
+    })
+    e.onTicketClosed()
+    timers.advance(60_000)
+    await e.idle()
+    const live = join(disk, 'AtlasBackup', 'live', 'atlas-live.atlasbak')
+    const firstSha = await sha256File(live)
+
+    addProducts(fx.db, 3)
+    failManifest = true
+    e.onTicketClosed()
+    timers.advance(60_000)
+    await e.idle()
+
+    expect(await sha256File(live)).toBe(firstSha)
+    expect(JSON.parse(readFileSync(`${live}.json`, 'utf8')).sha256).toBe(firstSha)
+    expect(readdirSync(join(disk, 'AtlasBackup', 'live')).sort()).toEqual(['atlas-live.atlasbak', 'atlas-live.atlasbak.json'])
+    expect(e.status().perTarget[0]).toMatchObject({ state: 'error', lastError: 'EIO' })
   })
 })

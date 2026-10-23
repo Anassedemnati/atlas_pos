@@ -20,12 +20,17 @@ function dailies(newest: Date, days: number): { name: string; at: Date }[] {
 }
 
 describe('backup file names', () => {
-  it('formats atlas-YYYYMMDD-HHmm-<kind>[-<label>] in local time and parses it back', () => {
+  it('formats atlas-YYYYMMDD-HHmm-Z<no> for a Z closure and -<kind> otherwise, in local time, and parses both back', () => {
     const at = new Date(2026, 9, 22, 7, 5)
-    expect(fullBackupName(at, 'full', 'Z12')).toBe('atlas-20261022-0705-full-Z12.atlasbak')
+    expect(fullBackupName(at, 'full', 'Z12')).toBe('atlas-20261022-0705-Z12.atlasbak')
+    expect(fullBackupName(at, 'full', '12')).toBe('atlas-20261022-0705-Z12.atlasbak')
+    expect(fullBackupName(at, 'full')).toBe('atlas-20261022-0705-full.atlasbak')
+    expect(fullBackupName(at, 'full', 'not a z')).toBe('atlas-20261022-0705-full.atlasbak')
     expect(fullBackupName(at, 'pre-change')).toBe('atlas-20261022-0705-pre-change.atlasbak')
-    expect(fullBackupName(at, 'manual', 'avant / réglage')).toBe('atlas-20261022-0705-manual-avant-r-glage.atlasbak')
-    expect(parseBackupStamp('atlas-20261022-0705-full-Z12.atlasbak')?.getTime()).toBe(at.getTime())
+    expect(fullBackupName(at, 'manual', '7')).toBe('atlas-20261022-0705-manual.atlasbak')
+    expect(parseBackupStamp('atlas-20261022-0705-Z12.atlasbak')?.getTime()).toBe(at.getTime())
+    expect(parseBackupStamp('atlas-20261022-0705-pre-change.atlasbak')?.getTime()).toBe(at.getTime())
+    expect(parseBackupStamp('atlas-20261022-0705-manual-2.atlasbak')?.getTime()).toBe(at.getTime())
     expect(parseBackupStamp('atlas-live.atlasbak')).toBeNull()
     expect(parseBackupStamp('notes.txt')).toBeNull()
   })

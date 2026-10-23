@@ -1,8 +1,9 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { newId } from '@shared/ids'
 import type { Clock } from '../../src/main/application/ports'
+import { folderTarget, type BackupTarget } from '../../src/main/infrastructure/backup/targets'
 import { openDatabase, type Database } from '../../src/main/infrastructure/db/connection'
 import { migrate } from '../../src/main/infrastructure/db/migrate'
 import { writeInstallation } from '../../src/main/infrastructure/fs/installation'
@@ -110,3 +111,15 @@ export function addProducts(db: Database, n: number): void {
 
 export const countProducts = (db: Database): number =>
   (db.prepare('SELECT COUNT(*) AS n FROM products').get() as { n: number }).n
+
+/** Writes `<root>/AtlasBackup/.atlas-target` with `key`, as the setup "Tester" does. */
+export function writeMarker(root: string, key: string): void {
+  mkdirSync(join(root, 'AtlasBackup'), { recursive: true })
+  writeFileSync(join(root, 'AtlasBackup', '.atlas-target'), `${key}\n`)
+}
+
+/** A disk/NAS folder target whose folder is already marked (key `key-<id>`). */
+export function markedFolder(def: { id: string; role: 'disk' | 'nas'; path: string; label?: string }): BackupTarget {
+  writeMarker(def.path, `key-${def.id}`)
+  return folderTarget({ ...def, targetKey: `key-${def.id}` })
+}

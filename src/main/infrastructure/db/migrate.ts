@@ -1,6 +1,7 @@
 import type { Database } from './connection'
 import { DatabaseError } from './errors'
 import init001 from './migrations/001_init.sql?raw'
+import backup002 from './migrations/002_backup.sql?raw'
 
 export interface Migration {
   /** 1, 2, 3, ... without gaps: the value stored in `PRAGMA user_version` once applied. */
@@ -15,7 +16,10 @@ export interface Migration {
  * line here (a test fails if a file is not registered). Files are bundled as Vite `?raw` strings,
  * so they ship inside the main bundle.
  */
-export const migrations: readonly Migration[] = [{ version: 1, name: '001_init', sql: init001 }]
+export const migrations: readonly Migration[] = [
+  { version: 1, name: '001_init', sql: init001 },
+  { version: 2, name: '002_backup', sql: backup002 }
+]
 
 const readVersion = (db: Database): number => db.pragma('user_version', { simple: true }) as number
 

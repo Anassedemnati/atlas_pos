@@ -2,13 +2,26 @@ import { existsSync } from 'node:fs'
 import { readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
-/** The folder every target holds, and the marker file that names a USB target. */
+/** The folder every target holds, and the marker file that names it. */
 export const BACKUP_DIR = 'AtlasBackup'
 /**
- * `<mount>/AtlasBackup/.atlas-target`: a text file whose content (trimmed) is the target's
- * `target_key`. The setup wizard writes it when a USB target is tested.
+ * `<root>/AtlasBackup/.atlas-target`: a text file whose content (trimmed) is the target's
+ * `target_key`, for every role (disk, NAS, USB). `testTarget` (the setup "Tester" button) writes
+ * it. A root without the right marker is not the destination: an unmounted NAS mount point is an
+ * empty local folder, and a backup must never land there.
  */
 export const TARGET_MARKER = '.atlas-target'
+
+/** True when `<root>/AtlasBackup/.atlas-target` holds `targetKey` (a blank key never matches). Never throws. */
+export async function hasTargetMarker(root: string, targetKey: string): Promise<boolean> {
+  const key = targetKey.trim()
+  if (!key) return false
+  try {
+    return (await readFile(join(root, BACKUP_DIR, TARGET_MARKER), 'utf8')).trim() === key
+  } catch {
+    return false
+  }
+}
 
 /** The sub-directories of `parent` (absolute), or none when it cannot be read. */
 async function subdirs(parent: string): Promise<string[]> {
@@ -52,16 +65,10 @@ export interface UsbScanOptions {
 
 /** The mount root whose `AtlasBackup/.atlas-target` holds `targetKey`, or null when none is plugged in. */
 export async function usbScan(targetKey: string, options: UsbScanOptions = {}): Promise<string | null> {
-  const key = targetKey.trim()
-  if (!key) return null
+  if (!targetKey.trim()) return null
   const list = options.listCandidateRoots ?? listCandidateRoots
   for (const root of await list(options.platform ?? process.platform)) {
-    try {
-      const marker = await readFile(join(root, BACKUP_DIR, TARGET_MARKER), 'utf8')
-      if (marker.trim() === key) return root
-    } catch {
-      // No marker, or the drive is not readable: not this one.
-    }
+    if (await hasTargetMarker(root, targetKey)) return root
   }
   return null
 }

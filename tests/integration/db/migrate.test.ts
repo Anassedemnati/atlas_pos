@@ -24,11 +24,23 @@ describe('migrate', () => {
   let t: TempDb
   afterEach(() => t.cleanup())
 
-  it('brings an empty database to user_version 1', () => {
+  it('brings an empty database to the latest user_version', () => {
     t = tempDb({ migrate: false })
     expect(userVersion(t)).toBe(0)
-    expect(migrate(t.db)).toEqual({ from: 0, to: 1 })
-    expect(userVersion(t)).toBe(1)
+    expect(migrate(t.db)).toEqual({ from: 0, to: migrations.length })
+    expect(userVersion(t)).toBe(migrations.length)
+  })
+
+  it('002 adds backup_destinations.created_at and the backup_runs (kind, at) index', () => {
+    t = tempDb({ migrate: false })
+    migrate(t.db, migrations.slice(0, 1))
+    t.db.prepare("INSERT INTO backup_destinations (id, role, path) VALUES ('d', 'disk', '/x')").run()
+    migrate(t.db)
+    expect(t.db.prepare("SELECT created_at AS c FROM backup_destinations WHERE id = 'd'").get()).toEqual({ c: '' })
+    const index = t.db.prepare("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'backup_runs_kind_at'").get() as
+      | { sql: string }
+      | undefined
+    expect(index?.sql).toMatch(/backup_runs \(kind, at\)/)
   })
 
   it('creates every table of schema v1', () => {
@@ -39,8 +51,8 @@ describe('migrate', () => {
   it('is idempotent and keeps existing data', () => {
     t = tempDb()
     t.db.prepare("INSERT INTO settings (key, value_json, updated_at) VALUES ('k', '1', 'now')").run()
-    expect(migrate(t.db)).toEqual({ from: 1, to: 1 })
-    expect(userVersion(t)).toBe(1)
+    expect(migrate(t.db)).toEqual({ from: migrations.length, to: migrations.length })
+    expect(userVersion(t)).toBe(migrations.length)
     expect(t.db.prepare('SELECT count(*) AS n FROM settings').get()).toEqual({ n: 1 })
   })
 

@@ -72,18 +72,20 @@ interface Inspection {
   counts: Record<string, number>
 }
 
+export type SnapshotCheck = 'integrity_check' | 'quick_check'
+
 /**
  * Opens a standalone copy, makes it a single self-contained file (`journal_mode=DELETE`: the
  * backup API copies the source's WAL flag into the header), checks it and reads its counts.
- * Throws `backup_corrupt` when `integrity_check` is not clean.
+ * Throws `backup_corrupt` when the check is not clean.
  */
-function inspectCopy(file: string, readonly: boolean): Inspection {
+function inspectCopy(file: string, readonly: boolean, check: SnapshotCheck = 'integrity_check'): Inspection {
   const db = new BetterSqlite3(file, { readonly, fileMustExist: true })
   try {
     if (!readonly) db.pragma('journal_mode = DELETE')
-    const check = (db.pragma('integrity_check') as { integrity_check: string }[]).map((r) => r.integrity_check)
-    if (check.length !== 1 || check[0] !== 'ok') {
-      throw Object.assign(new Error('integrity_check failed'), { appError: appError('backup_corrupt', { problems: check.slice(0, 5) }) })
+    const problems = (db.pragma(check) as Record<string, string>[]).map((r) => r[check] ?? '')
+    if (problems.length !== 1 || problems[0] !== 'ok') {
+      throw Object.assign(new Error(`${check} failed`), { appError: appError('backup_corrupt', { problems: problems.slice(0, 5) }) })
     }
     const counts: Record<string, number> = {}
     for (const table of COUNTED_TABLES) {
@@ -97,10 +99,13 @@ function inspectCopy(file: string, readonly: boolean): Inspection {
 
 /**
  * Takes a consistent copy of the live database with SQLite's online backup API (asynchronous: it
- * copies in steps and does not block the till), checks it (`integrity_check`), reads the schema
+ * copies in steps and does not block the till), checks it, reads the schema
  * version and row counts from the copy itself (a ticket committed meanwhile is either wholly in
- * it or not), gzips it to `<tmpDir>/<id>.atlasbak` and writes the manifest `<file>.json`.
- * The raw copy is always removed. Encryption, when it comes, is one more stage in the gzip
+ * it or not), gzips it to `<tmpDir>/<id>.atlasbak` and writes the manifest `<file>.json`, both
+ * fsynced before it returns. The raw copy is always removed.
+ * The check runs on the main thread: `live` copies (every minute in service) use `quick_check`
+ * (about half the cost), dated copies the full `integrity_check`. Moving it to a worker thread is
+ * ledgered for later. Encryption, when it comes, is one more stage in the gzip
  * pipeline, with a manifest field naming it.
  */
 export async function createSnapshot(db: Database, tmpDir: string, meta: SnapshotMeta): Promise<Snapshot> {
@@ -110,8 +115,9 @@ export async function createSnapshot(db: Database, tmpDir: string, meta: Snapsho
   const file = join(tmpDir, `${id}.atlasbak`)
   try {
     await db.backup(raw)
-    const { schemaVersion, counts } = inspectCopy(raw, false)
-    await pipeline(createReadStream(raw), createGzip({ level: 6 }), createWriteStream(file))
+    const { schemaVersion, counts } = inspectCopy(raw, false, meta.kind === 'live' ? 'quick_check' : 'integrity_check')
+    // `flush`: the file is fsynced before it is closed, so the archive is on disk before anything points at it.
+    await pipeline(createReadStream(raw), createGzip({ level: 6 }), createWriteStream(file, { flush: true }))
     const sha256 = await sha256File(file)
     const { size: bytes } = await stat(file)
     const manifest: Manifest = {
@@ -124,7 +130,7 @@ export async function createSnapshot(db: Database, tmpDir: string, meta: Snapsho
       sha256,
       counts
     }
-    await writeFile(manifestPath(file), `${JSON.stringify(manifest, null, 2)}\n`)
+    await writeFile(manifestPath(file), `${JSON.stringify(manifest, null, 2)}\n`, { flush: true })
     return { file, sha256, bytes, counts, manifest }
   } catch (error) {
     await Promise.all([rm(file, { force: true }), rm(manifestPath(file), { force: true })]).catch(() => {})

@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
@@ -9,12 +9,8 @@ import {
   usbTarget
 } from '../../../src/main/infrastructure/backup/targets'
 import { listCandidateRoots, usbScan } from '../../../src/main/infrastructure/backup/usb-scan'
-import { backupFixture, type BackupFixture } from '../../helpers/backup'
+import { backupFixture, writeMarker, type BackupFixture } from '../../helpers/backup'
 
-const writeMarker = (root: string, key: string): void => {
-  mkdirSync(join(root, 'AtlasBackup'), { recursive: true })
-  writeFileSync(join(root, 'AtlasBackup', '.atlas-target'), `${key}\n`)
-}
 
 describe('backup targets', () => {
   let fx: BackupFixture
@@ -23,20 +19,36 @@ describe('backup targets', () => {
   })
   afterEach(() => fx.cleanup())
 
-  it('a folder target resolves to its path when writable, and never creates a missing one', async () => {
+  it('a folder target resolves to its path only when writable and marked with its key, and never creates a missing one', async () => {
     const disk = fx.newDir('disk')
-    expect(await folderTarget({ id: 'd', role: 'disk', path: disk }).resolveRoot()).toBe(disk)
+    const target = folderTarget({ id: 'd', role: 'disk', path: disk, targetKey: 'k-disk' })
+    expect(await target.resolveRoot()).toBeNull() // not marked yet
+    expect(await target.setupRoot()).toBe(disk)
+    writeMarker(disk, 'k-other')
+    expect(await target.resolveRoot()).toBeNull() // someone else's marker
+    writeMarker(disk, 'k-disk')
+    expect(await target.resolveRoot()).toBe(disk)
+    expect(await folderTarget({ id: 'd', role: 'disk', path: disk, targetKey: '' }).resolveRoot()).toBeNull()
 
     const absent = join(fx.dir, 'nas-not-mounted')
-    expect(await folderTarget({ id: 'n', role: 'nas', path: absent }).resolveRoot()).toBeNull()
+    const nas = folderTarget({ id: 'n', role: 'nas', path: absent, targetKey: 'k-nas' })
+    expect(await nas.resolveRoot()).toBeNull()
+    expect(await nas.setupRoot()).toBeNull()
     expect(existsSync(absent)).toBe(false)
+  })
+
+  it('an unmounted NAS mount point (an empty local folder) is not available', async () => {
+    const mountPoint = fx.newDir('mnt-nas')
+    expect(await folderTarget({ id: 'n', role: 'nas', path: mountPoint, targetKey: 'k-nas' }).resolveRoot()).toBeNull()
+    expect(readdirSync(mountPoint)).toEqual([])
   })
 
   it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('a read-only folder is not available', async () => {
     const ro = fx.newDir('ro')
-    chmodSync(ro, 0o555)
     try {
-      expect(await folderTarget({ id: 'd', role: 'disk', path: ro }).resolveRoot()).toBeNull()
+      writeMarker(ro, 'k')
+      chmodSync(ro, 0o555)
+      expect(await folderTarget({ id: 'd', role: 'disk', path: ro, targetKey: 'k' }).resolveRoot()).toBeNull()
     } finally {
       chmodSync(ro, 0o755)
     }
@@ -73,18 +85,45 @@ describe('backup targets', () => {
     for (const r of roots) expect(r.startsWith('/Volumes/')).toBe(true)
   })
 
-  it('testTarget writes, reads back and deletes a 1 MB probe, and reports free space', async () => {
+  it('testTarget marks the folder, writes, reads back and deletes a 1 MB probe, and reports free space', async () => {
     const disk = fx.newDir('disk')
-    const result = await testTarget(folderTarget({ id: 'd', role: 'disk', path: disk }))
+    const target = folderTarget({ id: 'd', role: 'disk', path: disk, targetKey: 'k-disk' })
+    const result = await testTarget(target)
     expect(result.ok).toBe(true)
     if (result.ok) expect(result.value.writableBytes).toBeGreaterThan(1024 * 1024)
-    expect(readdirSync(join(disk, 'AtlasBackup'))).toEqual([])
+    expect(readdirSync(join(disk, 'AtlasBackup'))).toEqual(['.atlas-target'])
+    expect(readFileSync(join(disk, 'AtlasBackup', '.atlas-target'), 'utf8').trim()).toBe('k-disk')
+    expect(await target.resolveRoot()).toBe(disk)
 
-    const missing = await testTarget(folderTarget({ id: 'n', role: 'nas', path: join(fx.dir, 'nope') }))
+    // A USB is marked at the path it was mounted at when configured, then found by its marker.
+    const mount = fx.newDir('usb')
+    const usb = usbTarget({ id: 'u', targetKey: 'k-usb', path: mount }, (key) =>
+      usbScan(key, { platform: 'linux', listCandidateRoots: async () => [mount] })
+    )
+    expect((await testTarget(usb)).ok).toBe(true)
+    expect(await usb.resolveRoot()).toBe(mount)
+
+    const missing = await testTarget(folderTarget({ id: 'n', role: 'nas', path: join(fx.dir, 'nope'), targetKey: 'k' }))
     expect(missing).toEqual({
       ok: false,
       error: { code: 'backup_target_unavailable', messageKey: 'errors.backup_target_unavailable', params: { targetId: 'n' } }
     })
+  })
+
+  it('testTarget never rejects, even when resolving the target throws', async () => {
+    const broken = {
+      id: 'x',
+      role: 'nas' as const,
+      targetKey: 'k',
+      describe: () => 'x',
+      resolveRoot: async () => {
+        throw new Error('EIO')
+      },
+      setupRoot: async () => null
+    }
+    const result = await testTarget(broken)
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error.code).toBe('backup_probe_failed')
   })
 
   it('copyFileAtomic replaces the destination and leaves no temp file', async () => {
@@ -103,7 +142,8 @@ describe('backup targets', () => {
     const insert = fx.db.prepare(
       'INSERT INTO backup_destinations (id, role, path, label, target_key, enabled) VALUES (?, ?, ?, ?, ?, ?)'
     )
-    insert.run('t1', 'disk', disk, 'Disque 2', '', 1)
+    insert.run('t1', 'disk', disk, 'Disque 2', 'k-disk', 1)
+    writeMarker(disk, 'k-disk')
     insert.run('t2', 'usb', '', 'Clé', 'k-usb', 1)
     insert.run('t3', 'nas', '/nowhere', 'NAS', '', 0)
 

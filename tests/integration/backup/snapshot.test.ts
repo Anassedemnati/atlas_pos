@@ -1,6 +1,7 @@
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import BetterSqlite3 from 'better-sqlite3'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { migrations } from '../../../src/main/infrastructure/db/migrate'
 import { createSnapshot, verifySnapshot } from '../../../src/main/infrastructure/backup/snapshot'
 import { backupFixture, type BackupFixture } from '../../helpers/backup'
@@ -46,6 +47,21 @@ describe('createSnapshot / verifySnapshot', () => {
     expect(verified).toEqual({ ok: true, value: manifest })
     // Only the snapshot and its manifest remain: the raw copy and the verify scratch are gone.
     expect(readdirSync(tmp).sort()).toEqual([basename(snap.file), `${basename(snap.file)}.json`])
+  })
+
+  it('checks a live copy with quick_check and a dated copy with the full integrity_check', async () => {
+    const pragma = vi.spyOn(BetterSqlite3.prototype, 'pragma')
+    try {
+      const checks = (): string[] =>
+        pragma.mock.calls.map((c) => String(c[0])).filter((p) => p === 'quick_check' || p === 'integrity_check')
+      await createSnapshot(fx.db, tmp, { ...meta, kind: 'live' })
+      expect(checks()).toEqual(['quick_check'])
+      pragma.mockClear()
+      await createSnapshot(fx.db, tmp, meta)
+      expect(checks()).toEqual(['integrity_check'])
+    } finally {
+      pragma.mockRestore()
+    }
   })
 
   it('fails verification when one byte of the archive changes', async () => {

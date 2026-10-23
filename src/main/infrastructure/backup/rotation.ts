@@ -12,21 +12,20 @@ const NAME = /^atlas-(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})-.+\.atlasbak$/
 
 const pad = (n: number, width = 2): string => String(n).padStart(width, '0')
 
-/** Keeps a label to `[A-Za-z0-9_]` runs joined by `-`, so it is safe in a file name on every OS. */
-const sanitizeLabel = (label: string): string =>
-  label
-    .replace(/[^A-Za-z0-9_]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 40)
+/** The Z number of a label (`12`, `Z12`, `z12`), or null when the label is not one. */
+const zNumber = (label: string | undefined): string | null => /^\s*[Zz]?(\d{1,9})\s*$/.exec(label ?? '')?.[1] ?? null
 
 /**
- * `atlas-YYYYMMDD-HHmm-<kind>[-<label>].atlasbak`, in the till's local time (the shopkeeper reads
- * these names), e.g. `atlas-20261022-2315-full-Z12.atlasbak`.
+ * In the till's local time (the shopkeeper reads these names), spec §7.2:
+ * - a Z closure (`full` with the Z number as `label`): `atlas-YYYYMMDD-HHmm-Z<no>.atlasbak`,
+ *   e.g. `atlas-20261022-2315-Z12.atlasbak`;
+ * - anything else: `atlas-YYYYMMDD-HHmm-<kind>.atlasbak` (`full`, `pre-change`, `manual`).
+ * A label that is not a Z number, or on another kind, does not change the name.
  */
 export function fullBackupName(at: Date, kind: Exclude<BackupKind, 'live'>, label?: string): string {
   const stamp = `${at.getFullYear()}${pad(at.getMonth() + 1)}${pad(at.getDate())}-${pad(at.getHours())}${pad(at.getMinutes())}`
-  const suffix = label ? sanitizeLabel(label) : ''
-  return `atlas-${stamp}-${kind}${suffix ? `-${suffix}` : ''}.atlasbak`
+  const z = kind === 'full' ? zNumber(label) : null
+  return `atlas-${stamp}-${z ? `Z${z}` : kind}.atlasbak`
 }
 
 /** The local time a dated backup name carries, or null for any other name. */

@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { mkdir, readdir } from 'node:fs/promises'
+import { mkdir, open, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { newId } from '@shared/ids'
 import type { AppError, Result } from '@shared/result'
@@ -119,11 +119,12 @@ function preRestorePath(paths: DataPaths, clock: Clock): string {
  * 4. moves the current database and any `-wal`/`-shm` (the database first) to
  *    `db/pre-restore-<ts>.db*`; a missing current database is fine. A stale `-wal` left next to the
  *    restored file would be replayed into it, so it always goes with the database;
- * 5. moves the verified file into place, opens it, migrates it, closes it, and runs `startupCheck`.
- * Never rejects. If `close` throws, nothing has moved (`restore_failed`). If moving or step 5 fails,
- * the restored file is set aside as `db/restore-failed-*.db` and the previous database is put back
- * (`restore_failed`). If only `startupCheck` throws (busy, permissions), the backup IS in place:
- * `restore_check_failed` with `params.preRestoreFile`. The caller reopens the database afterwards.
+ * 5. fsyncs the verified file, moves it into place, opens it, migrates it, closes it, and runs
+ *    `startupCheck`.
+ * Never rejects, and either restores completely or not at all. If `close` throws, nothing has
+ * moved. If moving, step 5 or `startupCheck` fails, the restored file is set aside as
+ * `db/restore-failed-*.db` and the previous files are put back. Both are `restore_failed` with
+ * `params.stage`. The caller reopens the database afterwards.
  */
 export async function restoreBackup(
   entry: Pick<BackupEntry, 'file'>,
@@ -157,37 +158,41 @@ export async function restoreBackup(
     const pre = preRestorePath(paths, deps.clock)
     const moved: string[] = []
     let swapped = false
+    let stage: 'swap' | 'migrate' | 'check' = 'swap'
+    let report: StartupReport
     try {
+      const handle = await open(staged, 'r+')
+      try {
+        await handle.sync()
+      } finally {
+        await handle.close()
+      }
       await moveDbFiles(paths.dbFile, pre, moved)
       log('restore.current_moved', { to: moved.includes('') ? pre : null, moved })
       await renameWithRetry(staged, paths.dbFile)
       swapped = true
       await fsyncDir(paths.db)
+      stage = 'migrate'
       const db = openDatabase(paths.dbFile)
       try {
         migrate(db)
       } finally {
         db.close()
       }
+      stage = 'check'
+      report = startupCheck({ paths, clock: deps.clock, unclean: false, log })
     } catch (error) {
-      log('restore.failed', { stage: swapped ? 'migrate' : 'swap', message: String(error) })
+      log('restore.failed', { stage, message: String(error) })
       try {
         if (swapped) await moveDbFiles(paths.dbFile, join(paths.db, `restore-failed-${newId()}.db`))
         for (const s of moved) await renameWithRetry(`${pre}${s}`, `${paths.dbFile}${s}`)
       } catch (rollbackError) {
         log('restore.rollback_failed', { message: String(rollbackError), preRestore: pre })
       }
-      return fail('restore_failed', { stage: swapped ? 'migrate' : 'swap', reason: reasonOf(error) })
+      return fail('restore_failed', { stage, reason: reasonOf(error) })
     }
 
     const preRestoreFile = moved.includes('') ? pre : null
-    let report: StartupReport
-    try {
-      report = startupCheck({ paths, clock: deps.clock, unclean: false, log })
-    } catch (error) {
-      log('restore.check_failed', { message: String(error) })
-      return fail('restore_check_failed', { preRestoreFile, reason: reasonOf(error) })
-    }
     log('restore.done', { file: entry.file, state: report.state })
     return { ok: true, value: { preRestoreFile, report } }
   } finally {
