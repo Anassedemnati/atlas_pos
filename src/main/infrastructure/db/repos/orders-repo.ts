@@ -58,7 +58,7 @@ export interface OrdersRepo {
   menuCourses(productId: string): MenuCourseRef[] | undefined
 
   insert(tx: Tx, order: Omit<StoredOrder, 'lines' | 'payments' | 'tableLabel'>): void
-  /** Writes the header: table, covers, status, customer, note, ticket discount and its approval, `updated_at`. */
+  /** Writes the header: table, covers, status, customer, note, ticket discount and the approvals, `updated_at`. */
   updateHeader(tx: Tx, order: Omit<StoredOrder, 'lines' | 'payments' | 'tableLabel'>): void
   insertLine(tx: Tx, orderId: string, line: StoredLine): void
   /** Writes every mutable field of the line (quantity, status, kitchen, discount, free, note). */
@@ -91,7 +91,8 @@ export function createOrdersRepo(db: Database): OrdersRepo {
     updatedAt: row.updated_at,
     note: row.note,
     discount: toDiscount(row.discount_kind, row.discount_value, row.discount_reason),
-    discountApprovedBp: row.discount_approved_bp,
+    approvedTicketBp: row.approved_ticket_bp,
+    approvedCents: row.approved_cents,
     lines: linesOf(row.id),
     payments: paymentsOf(row.id)
   })
@@ -170,8 +171,8 @@ export function createOrdersRepo(db: Database): OrdersRepo {
         .prepare(
           `INSERT INTO orders (id, day_id, type, table_id, covers, order_number, status, user_id, customer_id,
                                opened_at, updated_at, note, discount_kind, discount_value, discount_reason,
-                               discount_approved_bp)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+                               approved_ticket_bp, approved_cents)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           o.id,
@@ -187,7 +188,8 @@ export function createOrdersRepo(db: Database): OrdersRepo {
           o.updatedAt,
           o.note,
           ...discountColumns(o.discount),
-          o.discountApprovedBp
+          o.approvedTicketBp,
+          o.approvedCents
         )
     },
 
@@ -195,7 +197,8 @@ export function createOrdersRepo(db: Database): OrdersRepo {
       tx.db
         .prepare(
           `UPDATE orders SET table_id = ?, covers = ?, status = ?, customer_id = ?, note = ?, updated_at = ?,
-                  discount_kind = ?, discount_value = ?, discount_reason = ?, discount_approved_bp = ? WHERE id = ?`
+                  discount_kind = ?, discount_value = ?, discount_reason = ?, approved_ticket_bp = ?, approved_cents = ?
+            WHERE id = ?`
         )
         .run(
           o.tableId,
@@ -205,7 +208,8 @@ export function createOrdersRepo(db: Database): OrdersRepo {
           o.note,
           o.updatedAt,
           ...discountColumns(o.discount),
-          o.discountApprovedBp,
+          o.approvedTicketBp,
+          o.approvedCents,
           o.id
         )
     },

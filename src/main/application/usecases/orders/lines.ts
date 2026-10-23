@@ -8,7 +8,7 @@ import { parseInput } from '../catalog/input'
 import { attemptSync, invalidInput } from '../users/outcome'
 import {
   activeLine,
-  approvalAfterGrowth,
+  approvalsOf,
   assertNotBelowPaid,
   checkDiscountLimit,
   discountGate,
@@ -28,12 +28,14 @@ export interface LineUseCases {
    * `invalid_qty` for a quantity that is not a whole number > 0, or not whole units for a product that
    * is not sold by weight; `invalid_modifiers` for a modifier that is not offered for the product, or a
    * group outside its min / max; `invalid_menu_choice` when the choices do not fill the set menu's courses.
+   * A percentage ticket discount grows with the bill, so the order's discount is checked again with the
+   * line in (`discount_over_limit` unless `overrideToken`, see `setLineDiscount`); the approvals are unchanged.
    */
-  addLine(session: Session, orderId: string, input: AddLineInput): Result<OrderDto>
+  addLine(session: Session, orderId: string, input: AddLineInput, overrideToken?: OverrideToken): Result<OrderDto>
   /**
    * A line the kitchen has not received yet (`line_sent` otherwise: void it, or add a line). Moves the
-   * stock. A lower quantity shrinks what the order's discounts are measured on: `discount_over_limit`
-   * unless `overrideToken` (see `setLineDiscount`).
+   * stock. The quantity changes what the order's discounts are measured on, so the order's discount is
+   * checked again: `discount_over_limit` unless `overrideToken` (see `setLineDiscount`).
    */
   setLineQty(session: Session, orderId: string, lineId: string, qtyMilli: number, overrideToken?: OverrideToken): Result<OrderDto>
   /**
@@ -97,7 +99,7 @@ export function createLineUseCases(ctx: Sales): LineUseCases {
     })
   }
 
-  function add(session: Session, orderId: string, raw: AddLineInput): OrderDto {
+  function add(session: Session, orderId: string, raw: AddLineInput, token?: OverrideToken): OrderDto {
     const input = parseInput(AddLineSchema, raw)
     return uow.run((tx) => {
       const order = loadOrder(ctx, orderId)
@@ -124,28 +126,32 @@ export function createLineUseCases(ctx: Sales): LineUseCases {
         userId: session.userId,
         createdAt: tx.clock.now().toISOString()
       }
+      const gate = discountGate(token)
+      checkDiscountLimit(session, gate, { lines: [...order.lines, line], discount: order.discount }, approvalsOf(order))
       ctx.orders.insertLine(tx, order.id, line)
       moveStock(tx, ctx, line, -1)
-      order.discountApprovedBp = approvalAfterGrowth([...order.lines, line], order.discount, order.discountApprovedBp)
+      const audit = settleDiscount(ctx, gate)
       logOrder(tx, ctx, session, order, 'order.line_added', {
         lineId: line.id,
         productId: product.id,
         qtyMilli: line.qtyMilli,
-        unitPriceCents: line.unitPriceCents
+        unitPriceCents: line.unitPriceCents,
+        ...audit
       })
       return reread(ctx, order.id)
     })
   }
 
   /**
-   * Checks the order once one of its lines becomes `changed` and settles its discount check (the token,
-   * if needed, is spent here: every other check of the action has passed). Returns the audit data.
+   * Checks the order once one of its lines becomes `changed` (a base change: against the approvals it
+   * has, which it keeps) and settles its discount check (the token, if needed, is spent here: every other
+   * check of the action has passed). Returns the audit data.
    */
   function recheck(session: Session, order: StoredOrder, changed: StoredLine, token: OverrideToken | undefined) {
     const lines = order.lines.map((l) => (l.id === changed.id ? changed : l))
     assertNotBelowPaid(lines, order.discount, order.payments)
     const gate = discountGate(token)
-    order.discountApprovedBp = checkDiscountLimit(session, gate, { lines, discount: order.discount, approvedBp: order.discountApprovedBp })
+    checkDiscountLimit(session, gate, { lines, discount: order.discount }, approvalsOf(order))
     return settleDiscount(ctx, gate)
   }
 
@@ -183,7 +189,7 @@ export function createLineUseCases(ctx: Sales): LineUseCases {
   }
 
   return {
-    addLine: (session, orderId, input) => attemptSync(() => add(session, orderId, input)),
+    addLine: (session, orderId, input, token) => attemptSync(() => add(session, orderId, input, token)),
     setLineQty: (session, orderId, lineId, qtyMilli, token) => attemptSync(() => setQty(session, orderId, lineId, qtyMilli, token)),
     voidLine: (session, orderId, lineId, reason, token) => attemptSync(() => voidIt(session, orderId, lineId, reason, token))
   }

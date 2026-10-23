@@ -1,5 +1,6 @@
 import type { OrderDto } from '@shared/dto'
 import type { Result } from '@shared/result'
+import { priceLines } from '../../../domain/order/totals'
 import type { OverrideToken, Session } from '../../../domain/users/session'
 import type { StoredLine, StoredOrder } from '../../../infrastructure/db/repos/orders-repo'
 import type { Tx } from '../../../infrastructure/db/uow'
@@ -13,7 +14,6 @@ import {
   logOrder,
   reread,
   settleDiscount,
-  type DiscountGate,
   type Sales
 } from './context'
 
@@ -22,18 +22,19 @@ export interface TableUseCases {
   transferTable(session: Session, orderId: string, toTableId: string): Result<OrderDto>
   /**
    * Puts everything of `fromOrderId` (lines, void ones included, payments, covers) on `intoOrderId`; the
-   * emptied order is cancelled. Refused with `ticket_discount_set` while the merged order has a ticket
+   * emptied order is cancelled. Refused with `ticket_discount_set` while `fromOrderId` has a ticket
    * discount (remove it first: it was given on that bill, not on the other), and with `below_paid` when
    * the merged bill, under the target's ticket discount, would be less than what both were paid. The
-   * merged order's discount is checked against the session and its own approval (approvals never move
-   * between orders; `discount_over_limit` unless `overrideToken`).
+   * merged order keeps the target's ticket percentage approval and the two budgets added up, and its
+   * discount is checked against the session and those (`discount_over_limit` unless `overrideToken`).
    */
   mergeTables(session: Session, fromOrderId: string, intoOrderId: string, overrideToken?: OverrideToken): Result<OrderDto>
   /**
    * Moves active lines to another open order (they keep their kitchen state). `below_paid` if what stays
-   * would be under what the source order was already paid. Both orders' discounts are checked again, each
-   * against its own approval (`discount_over_limit` unless `overrideToken`, spent once for both).
-   * Returns the source order.
+   * would be under what the source order was already paid. Each order keeps its own approvals, except
+   * that the moved lines' line discounts travel with them out of the source's budget (at most what it
+   * holds) into the target's; both orders' discounts are then checked (`discount_over_limit` unless
+   * `overrideToken`, spent once for both). Returns the source order.
    */
   moveLines(session: Session, fromOrderId: string, lineIds: string[], toOrderId: string, overrideToken?: OverrideToken): Result<OrderDto>
 }
@@ -68,10 +69,6 @@ export function createTableUseCases(ctx: Sales): TableUseCases {
     })
   }
 
-  /** Records the check of `order` once its lines are `lines`, against its own approval; returns its new approval. */
-  const recheck = (session: Session, gate: DiscountGate, order: StoredOrder, lines: StoredLine[]) =>
-    checkDiscountLimit(session, gate, { lines, discount: order.discount, approvedBp: order.discountApprovedBp })
-
   function merge(session: Session, fromOrderId: string, intoOrderId: string, token?: OverrideToken): OrderDto {
     return uow.run((tx) => {
       const [from, into] = pair(fromOrderId, intoOrderId)
@@ -80,15 +77,16 @@ export function createTableUseCases(ctx: Sales): TableUseCases {
       // capped at its lines): the merged bill must still cover what both tables already paid.
       const mergedLines = [...into.lines, ...from.lines]
       assertNotBelowPaid(mergedLines, into.discount, [...into.payments, ...from.payments])
-      // Approvals never move between orders: the merged order is checked against its own.
+      // The target's ticket percentage approval stays; the budgets add up (the source's covered its lines).
+      const merged = { ...into, covers: into.covers + from.covers, approvedCents: into.approvedCents + from.approvedCents }
       const gate = discountGate(token)
-      const approvedBp = recheck(session, gate, into, mergedLines)
+      checkDiscountLimit(session, gate, { lines: mergedLines, discount: into.discount }, merged)
       const audit = settleDiscount(ctx, gate)
       moveTo(tx, from.lines, into)
       ctx.orders.movePayments(tx, from.id, into.id)
       const lineIds = from.lines.map((l) => l.id)
       logOrder(tx, ctx, session, { ...from, status: 'cancelled' }, 'order.merged_away', { intoOrderId: into.id, lineIds })
-      logOrder(tx, ctx, session, { ...into, covers: into.covers + from.covers, discountApprovedBp: approvedBp }, 'order.merged', {
+      logOrder(tx, ctx, session, merged, 'order.merged', {
         fromOrderId: from.id,
         lineIds,
         paymentIds: from.payments.map((p) => p.id),
@@ -111,18 +109,22 @@ export function createTableUseCases(ctx: Sales): TableUseCases {
       })
       const staying = from.lines.filter((l) => !lineIds.includes(l.id))
       assertNotBelowPaid(staying, from.discount, from.payments)
-      // Each order against its own approval: the moved lines' discounts are judged anew on the target.
+      // The moved lines' line discounts (free lines aside) leave the source's budget for the target's, at
+      // most what it holds.
+      const movedDiscounts = priceLines(
+        moving.filter((l) => !l.free),
+        null
+      ).reduce((sum, p) => sum + p.lineDiscount, 0)
+      const carried = Math.min(from.approvedCents, movedDiscounts)
+      const source = { ...from, approvedCents: from.approvedCents - carried }
+      const target = { ...to, approvedCents: to.approvedCents + carried }
       const gate = discountGate(token)
-      const fromApproved = recheck(session, gate, from, staying)
-      const toApproved = recheck(session, gate, to, [...to.lines, ...moving])
+      checkDiscountLimit(session, gate, { lines: staying, discount: from.discount }, source)
+      checkDiscountLimit(session, gate, { lines: [...to.lines, ...moving], discount: to.discount }, target)
       const audit = settleDiscount(ctx, gate)
       moveTo(tx, moving, to)
-      logOrder(tx, ctx, session, { ...from, discountApprovedBp: fromApproved }, 'order.lines_moved_out', {
-        toOrderId: to.id,
-        lineIds,
-        ...audit
-      })
-      logOrder(tx, ctx, session, { ...to, discountApprovedBp: toApproved }, 'order.lines_moved_in', { fromOrderId: from.id, lineIds })
+      logOrder(tx, ctx, session, source, 'order.lines_moved_out', { toOrderId: to.id, lineIds, carriedCents: carried, ...audit })
+      logOrder(tx, ctx, session, target, 'order.lines_moved_in', { fromOrderId: from.id, lineIds, carriedCents: carried })
       return reread(ctx, from.id)
     })
   }

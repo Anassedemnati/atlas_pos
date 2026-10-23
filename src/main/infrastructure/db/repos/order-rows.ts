@@ -22,7 +22,8 @@ export interface OrderRow {
   discount_kind: 'pct' | 'amount' | null
   discount_value: number
   discount_reason: string
-  discount_approved_bp: number | null
+  approved_ticket_bp: number
+  approved_cents: number
   table_label: string | null
 }
 

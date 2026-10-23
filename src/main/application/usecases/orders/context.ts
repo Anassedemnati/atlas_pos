@@ -1,8 +1,8 @@
 import type { LineModifierDto, OrderDto, PaymentDto } from '@shared/dto'
 import type { Discount } from '../../../domain/order/discount'
-import { lineGross, lineNet, type OrderLine } from '../../../domain/order/line'
+import type { OrderLine } from '../../../domain/order/line'
 import { activeLines, paymentState, type OrderStatus } from '../../../domain/order/order'
-import { computeTotals } from '../../../domain/order/totals'
+import { computeTotals, priceLines } from '../../../domain/order/totals'
 import { hasPermission, type OverrideToken, type Session } from '../../../domain/users/session'
 import type { Database } from '../../../infrastructure/db/connection'
 import { appendEvent } from '../../../infrastructure/db/event-log'
@@ -74,7 +74,8 @@ export function toOrderDto(order: StoredOrder): OrderDto {
     updatedAt: order.updatedAt,
     note: order.note,
     discount: order.discount,
-    discountApprovedBp: order.discountApprovedBp,
+    approvedTicketBp: order.approvedTicketBp,
+    approvedCents: order.approvedCents,
     lines: order.lines.map((line) => ({ ...line, netCents: nets.get(line.id) ?? 0 })),
     payments: order.payments,
     totals: {
@@ -126,92 +127,132 @@ export function assertNotBelowPaid(lines: StoredLine[], discount: Discount | nul
  */
 export interface DiscountGate {
   token?: OverrideToken
-  checks: { effectiveBp: number; limitBp: number; over: boolean }[]
+  checks: { discountCents: number; limitCents: number; over: boolean }[]
   usedBy?: string
 }
 
 export const discountGate = (token?: OverrideToken): DiscountGate => ({ token, checks: [] })
 
+/** What a manager approved on an order, beyond the acting user's own limit (migration 005). */
+export interface Approvals {
+  /** A percentage approval, only for a 'pct' ticket discount; it follows the bill. */
+  approvedTicketBp: number
+  /** An absolute budget for amount discounts (ticket 'amount') and all line discounts. */
+  approvedCents: number
+}
+
+export const approvalsOf = (order: Approvals): Approvals => ({
+  approvedTicketBp: order.approvedTicketBp,
+  approvedCents: order.approvedCents
+})
+
 /**
- * The combined discount of an order, measured on what was granted rather than on what the amounts
- * happen to take off now: `granted` is in centimes x 10000 (a percentage counts its exact share of its
- * base, a fixed amount its full nominal value, even above its base), `base` the gross of the active lines
- * that are not free. Free items are governed by `order.free_item`, not by the discount limit.
+ * The money an order's discounts take off, measured on the active lines that are not free (free items
+ * are governed by `order.free_item`, not by the discount limit): `discountCents` is the line discounts
+ * plus the ticket discount exactly as the ticket computes them, `gross` the gross of those lines, and
+ * `discountedLines` how many of them take a centime or more off (each may carry a rounding centime).
  */
-export function discountMeasure(lines: OrderLine[], discount: Discount | null): { granted: number; base: number } {
-  let granted = 0
-  let base = 0
-  let nets = 0
-  for (const line of activeLines(lines).filter((l) => !l.free)) {
-    const gross = lineGross(line)
-    base += gross
-    nets += lineNet(line)
-    if (line.discount) granted += line.discount.kind === 'pct' ? gross * line.discount.bp : line.discount.cents * 10000
-  }
-  if (discount) granted += discount.kind === 'pct' ? nets * discount.bp : discount.cents * 10000
-  return { granted, base }
+export interface DiscountFigures {
+  discountCents: number
+  gross: number
+  discountedLines: number
 }
 
-/** The combined discount in basis points, rounded up and at most 10000; a discount on a zero base is 10000. */
-export function effectiveDiscountBp(m: { granted: number; base: number }): number {
-  if (m.granted === 0) return 0
-  if (m.base === 0) return 10000
-  return Math.min(10000, Math.ceil(m.granted / m.base))
+export function discountFigures(lines: OrderLine[], discount: Discount | null): DiscountFigures {
+  const free = new Set(lines.filter((l) => l.free).map((l) => l.id))
+  const figures: DiscountFigures = { discountCents: 0, gross: 0, discountedLines: 0 }
+  for (const priced of priceLines(lines, discount)) {
+    if (free.has(priced.lineId)) continue
+    const off = priced.lineDiscount + priced.ticketDiscount
+    figures.gross += priced.gross
+    figures.discountCents += off
+    if (off > 0) figures.discountedLines += 1
+  }
+  return figures
+}
+
+/** `bp` of `gross`, rounded to the centime, plus the rounding centime of each discounted line. */
+const pctTermCents = (bp: number, figures: DiscountFigures): number =>
+  Math.round((bp * figures.gross) / 10000) + figures.discountedLines
+
+/**
+ * The most an order state may take off for `session`: its own limit as a share of the gross, or what a
+ * manager approved (the ticket percentage as a share of the gross, plus the budget in centimes),
+ * whichever is more.
+ */
+export function discountLimitCents(session: Session, approvals: Approvals, figures: DiscountFigures): number {
+  return Math.max(
+    pctTermCents(session.maxDiscountBp, figures),
+    pctTermCents(approvals.approvedTicketBp, figures) + approvals.approvedCents
+  )
 }
 
 /**
- * Records the check of one order as it will be after the change: its combined discount must stay within
- * `max(session.maxDiscountBp, the order's own stored approval)`; a session holding
- * `order.discount.override` is not limited. Approvals never move between orders: each order is checked
- * against its own. `slackCents` (a split only) tolerates the centime per line a proportional share of a
- * ticket discount may add to a part.
- * Returns what the order's approval becomes: its current combined discount (so it goes down when
- * discounts are removed; null without any), but never more than the session's limit when the check
- * passed without a manager (an unlimited session or, if over, the token the gate will spend).
+ * Records the check of one order state (its lines and ticket discount as they will be) under `approvals`:
+ * its discount must stay within `discountLimitCents`. A session holding `order.discount.override` is not
+ * limited. Returns whether the state is over the limit for this session: the action then goes on only if
+ * the gate's token is spent (a manager approved it), see `settleDiscount`.
  */
 export function checkDiscountLimit(
   session: Session,
   gate: DiscountGate,
-  after: { lines: OrderLine[]; discount: Discount | null; approvedBp: number | null },
-  slackCents = 0
-): number | null {
-  const measure = discountMeasure(after.lines, after.discount)
-  const effectiveBp = effectiveDiscountBp(measure)
-  if (effectiveBp === 0) return null
-  const limitBp = Math.max(session.maxDiscountBp, after.approvedBp ?? 0)
-  // Exact: granted / base <= limit, without rounding a 10 % on an odd amount into 10,01 %.
-  const within = measure.base > 0 && measure.granted <= limitBp * measure.base + slackCents * 10000
-  const unlimited = hasPermission(session, 'order.discount.override')
-  gate.checks.push({ effectiveBp, limitBp, over: !within && !unlimited })
-  // Over the limit, the action goes on only if the gate's token is spent: a manager approved it all.
-  return unlimited || !within ? effectiveBp : Math.min(effectiveBp, limitBp)
+  state: { lines: OrderLine[]; discount: Discount | null },
+  approvals: Approvals
+): boolean {
+  const figures = discountFigures(state.lines, state.discount)
+  const limitCents = discountLimitCents(session, approvals, figures)
+  const over = figures.discountCents > limitCents && !hasPermission(session, 'order.discount.override')
+  gate.checks.push({ discountCents: figures.discountCents, limitCents, over })
+  return over
 }
 
-/** Whether the order carries a fixed-amount discount (on the ticket or on an active line). */
-const carriesAmount = (lines: OrderLine[], discount: Discount | null): boolean =>
-  discount?.kind === 'amount' || activeLines(lines).some((l) => !l.free && l.discount?.kind === 'amount')
+/** Whether the order carries anything the budget covers: an amount ticket discount or a line discount. */
+const carriesBudgeted = (lines: OrderLine[], discount: Discount | null): boolean =>
+  discount?.kind === 'amount' || activeLines(lines).some((l) => !l.free && l.discount !== null)
 
 /**
- * The approval after a change that only grows the base (a new line): an approved fixed amount does not
- * become a wider percentage as the bill grows, so with an amount discount on the order the approval comes
- * down to the combined discount it now makes. Percentages keep their share; the approval is unchanged.
+ * The approvals an order carries once its ticket discount (`change` 'ticket') or a line discount
+ * ('line') was set, changed or removed. Without a manager (`viaManager` false), the ticket percentage
+ * approval follows a 'pct' ticket discount but never exceeds what the session may give on its own, or
+ * what was approved before; the budget is untouched, and cleared once nothing it covers is left. With a
+ * manager (an unlimited session, or a token the gate spends), the ticket percentage is approved as set
+ * and the budget grows to cover whatever the ticket percentage does not. Base changes (lines added,
+ * quantities, voids, free items, moves, merges, splits, closing) never go through here: they are only
+ * checked, and never raise an approval.
  */
-export function approvalAfterGrowth(lines: OrderLine[], discount: Discount | null, approvedBp: number | null): number | null {
-  if (approvedBp === null || !carriesAmount(lines, discount)) return approvedBp
-  const effectiveBp = effectiveDiscountBp(discountMeasure(lines, discount))
-  return effectiveBp === 0 ? null : Math.min(approvedBp, effectiveBp)
+export function approvalsAfterDiscount(
+  previous: Approvals,
+  session: Session,
+  after: { lines: OrderLine[]; discount: Discount | null },
+  change: 'ticket' | 'line',
+  viaManager: boolean
+): Approvals {
+  let approvedTicketBp = previous.approvedTicketBp
+  if (change === 'ticket') {
+    const ticket = after.discount
+    if (ticket?.kind !== 'pct') approvedTicketBp = 0
+    else if (viaManager) approvedTicketBp = ticket.bp
+    else approvedTicketBp = Math.min(ticket.bp, Math.max(session.maxDiscountBp, previous.approvedTicketBp))
+  }
+  const budgeted = carriesBudgeted(after.lines, after.discount)
+  let approvedCents = budgeted ? previous.approvedCents : 0
+  if (budgeted && viaManager) {
+    const figures = discountFigures(after.lines, after.discount)
+    approvedCents = Math.max(approvedCents, figures.discountCents - Math.round((approvedTicketBp * figures.gross) / 10000))
+  }
+  return { approvedTicketBp, approvedCents }
 }
 
 /**
- * Throws `discount_over_limit` (the first order over, `params.effectiveBp` / `params.limitBp`) when a
- * check of the gate is over and no token was offered, and `forbidden` (`reason: override_invalid`) when the
- * token offered would not be accepted. Spends nothing.
+ * Throws `discount_over_limit` (the first order over, `params.discountCents` / `params.limitCents`) when
+ * a check of the gate is over and no token was offered, and `forbidden` (`reason: override_invalid`) when
+ * the token offered would not be accepted. Spends nothing.
  */
 export function assertDiscountApprovable(ctx: Sales, gate: DiscountGate): void {
   const over = gate.checks.find((c) => c.over)
   if (!over || gate.usedBy !== undefined) return
   if (gate.token === undefined) {
-    throw new AppErrorException('discount_over_limit', { effectiveBp: over.effectiveBp, limitBp: over.limitBp })
+    throw new AppErrorException('discount_over_limit', { discountCents: over.discountCents, limitCents: over.limitCents })
   }
   if (!ctx.overrides.isOverrideValid(gate.token, 'order.discount.override')) {
     throw new AppErrorException('forbidden', { permission: 'order.discount.override', reason: 'override_invalid' })

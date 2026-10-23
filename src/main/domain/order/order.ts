@@ -21,8 +21,10 @@ export interface Order {
   updatedAt: string
   note: string
   discount: Discount | null
-  /** The order's combined discount (bp) as last approved (see migration 005); null when none. */
-  discountApprovedBp: number | null
+  /** A manager's percentage approval of a 'pct' ticket discount (bp), 0 without one (see migration 005). */
+  approvedTicketBp: number
+  /** A manager's budget (centimes) for amount discounts and line discounts, 0 without one (see migration 005). */
+  approvedCents: number
   lines: OrderLine[]
 }
 
