@@ -1,10 +1,24 @@
+import type { SettingKey } from '../domain/config/settings-registry'
 import type { EventBus } from './ports'
 
 /**
- * Placeholder: Task 4 narrows this into the union of real events
- * (`ticket.closed`, `order.changed`, ...). Nothing else may depend on the loose shape.
+ * Everything the application announces after a commit. A subscriber reacts (refreshes a screen,
+ * starts a backup); it never changes what the event describes.
  */
-export type DomainEvent = { type: string; [key: string]: unknown }
+export type DomainEvent =
+  | { type: 'ticket.closed'; ticketId: string }
+  | { type: 'order.changed'; orderId: string }
+  | { type: 'order.sent'; orderId: string; lineIds: string[] }
+  | { type: 'day.closed'; dayId: string; zId: string }
+  | { type: 'settings.changed'; keys: SettingKey[] }
+  | { type: 'catalog.changed' }
+  | { type: 'backup.status'; status: 'ok' | 'warning' | 'error' }
+  | { type: 'print.status'; printerId: string; status: 'pending' | 'printing' | 'done' | 'failed' | 'uncertain' }
+
+export type DomainEventType = DomainEvent['type']
+
+/** The event with this `type`: `DomainEventOf<'order.sent'>` is `{ type; orderId; lineIds }`. */
+export type DomainEventOf<T extends DomainEventType> = Extract<DomainEvent, { type: T }>
 
 type Handler = (event: DomainEvent) => void
 
@@ -42,7 +56,8 @@ export function createEventBus(
         subscribed = new Set()
         subscriptions.set(type, subscribed)
       }
-      const entry = { handler }
+      // Only events of `type` ever reach this handler, so it is safe to widen its parameter.
+      const entry = { handler: handler as Handler }
       subscribed.add(entry)
       return () => {
         subscribed.delete(entry)

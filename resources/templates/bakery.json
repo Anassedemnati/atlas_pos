@@ -1,0 +1,74 @@
+{
+  "id": "bakery",
+  "version": 1,
+  "modules": {
+    "tables": false,
+    "kitchen": false,
+    "menus": false,
+    "customers": false,
+    "stock": false,
+    "barcode": false,
+    "scale": false
+  },
+  "settings": {
+    "day.cutoverHour": 2,
+    "till.autoLockSeconds": 60
+  },
+  "paymentMethods": [
+    {"code":"cash","name":{"fr":"Espèces","ar":"نقدا","en":"Cash"},"opens_drawer":true,"active":true},
+    {"code":"card","name":{"fr":"Carte bancaire","ar":"بطاقة بنكية","en":"Bank card"},"opens_drawer":false,"active":true},
+    {"code":"cheque","name":{"fr":"Chèque","ar":"شيك","en":"Cheque"},"opens_drawer":false,"active":false}
+  ],
+  "profiles": [
+    {"code":"gerant","name":{"fr":"Gérant","ar":"مدير","en":"Manager"},"permissions":["order.discount","order.discount.override","order.void_sent","order.free_item","ticket.cancel","ticket.reprint","drawer.open","day.close","report.x","invoice.create","catalog.manage","users.manage","settings.manage","backup.restore","backoffice.login"],"max_discount_bp":10000},
+    {"code":"caissier","name":{"fr":"Caissier","ar":"أمين الصندوق","en":"Cashier"},"permissions":["order.discount","report.x","ticket.reprint"],"max_discount_bp":1000},
+    {"code":"serveur","name":{"fr":"Serveur","ar":"نادل","en":"Waiter"},"permissions":["order.discount"],"max_discount_bp":0}
+  ],
+  "categories": [
+    {"code":"pains","name":{"fr":"Pains","ar":"الخبز","en":"Breads"},"color":"#A0621E"},
+    {"code":"viennoiseries","name":{"fr":"Viennoiseries","ar":"المعجنات","en":"Viennoiseries"},"color":"#C27A0E"},
+    {"code":"patisseries","name":{"fr":"Pâtisseries","ar":"الحلويات","en":"Pastries"},"color":"#8E4A8F"},
+    {"code":"patisserie-marocaine","name":{"fr":"Pâtisserie marocaine","ar":"الحلويات المغربية","en":"Moroccan pastries"},"color":"#2E7D4F"},
+    {"code":"sale","name":{"fr":"Snacking salé","ar":"وجبات خفيفة مالحة","en":"Savoury snacks"},"color":"#2B6CB0"}
+  ],
+  "products": [
+    {"code":"baguette","category":"pains","name":{"fr":"Baguette","ar":"باغيت","en":"Baguette"},"price_cents":300,"vat_bp":0,"image":true},
+    {"code":"pain-complet","category":"pains","name":{"fr":"Pain complet","ar":"خبز القمح الكامل","en":"Wholemeal bread"},"price_cents":500,"vat_bp":0},
+    {"code":"pain-de-mie","category":"pains","name":{"fr":"Pain de mie","ar":"خبز التوست","en":"Sandwich loaf"},"price_cents":1000,"vat_bp":0},
+    {"code":"pain-cereales","category":"pains","name":{"fr":"Pain aux céréales","ar":"خبز الحبوب","en":"Multigrain bread"},"price_cents":600,"vat_bp":0},
+    {"code":"khobz","category":"pains","name":{"fr":"Khobz (pain traditionnel)","ar":"خبز تقليدي","en":"Khobz (traditional round bread)"},"price_cents":200,"vat_bp":0,"image":true},
+    {"code":"batbout","category":"pains","name":{"fr":"Batbout","ar":"بطبوط","en":"Batbout (griddle bread)"},"price_cents":300,"vat_bp":0},
+    {"code":"msemen","category":"pains","name":{"fr":"Msemen","ar":"مسمن","en":"Msemen (flaky flatbread)"},"price_cents":300,"vat_bp":0,"image":true},
+    {"code":"harcha","category":"pains","name":{"fr":"Harcha","ar":"حرشة","en":"Harcha (semolina flatbread)"},"price_cents":400,"vat_bp":0},
+    {"code":"baghrir","category":"pains","name":{"fr":"Baghrir","ar":"بغرير","en":"Baghrir (semolina pancake)"},"price_cents":300,"vat_bp":0},
+    {"code":"croissant","category":"viennoiseries","name":{"fr":"Croissant","ar":"كرواسون","en":"Croissant"},"price_cents":400,"vat_bp":2000,"image":true},
+    {"code":"pain-chocolat","category":"viennoiseries","name":{"fr":"Pain au chocolat","ar":"خبز بالشوكولاتة","en":"Pain au chocolat"},"price_cents":500,"vat_bp":2000,"image":true},
+    {"code":"pain-raisins","category":"viennoiseries","name":{"fr":"Pain aux raisins","ar":"خبز بالزبيب","en":"Raisin swirl"},"price_cents":500,"vat_bp":2000},
+    {"code":"brioche","category":"viennoiseries","name":{"fr":"Brioche","ar":"بريوش","en":"Brioche"},"price_cents":400,"vat_bp":2000},
+    {"code":"chausson-pommes","category":"viennoiseries","name":{"fr":"Chausson aux pommes","ar":"فطيرة التفاح","en":"Apple turnover"},"price_cents":500,"vat_bp":2000},
+    {"code":"croissant-amandes","category":"viennoiseries","name":{"fr":"Croissant aux amandes","ar":"كرواسون باللوز","en":"Almond croissant"},"price_cents":700,"vat_bp":2000},
+    {"code":"eclair-chocolat","category":"patisseries","name":{"fr":"Éclair au chocolat","ar":"إكلير بالشوكولاتة","en":"Chocolate éclair"},"price_cents":800,"vat_bp":2000,"image":true},
+    {"code":"mille-feuille","category":"patisseries","name":{"fr":"Mille-feuille","ar":"ميل فاي","en":"Mille-feuille"},"price_cents":900,"vat_bp":2000},
+    {"code":"tarte-fruits","category":"patisseries","name":{"fr":"Tarte aux fruits","ar":"تارت بالفواكه","en":"Fruit tart"},"price_cents":1000,"vat_bp":2000,"image":true},
+    {"code":"tartelette-citron","category":"patisseries","name":{"fr":"Tartelette au citron","ar":"تارتلت الليمون","en":"Lemon tartlet"},"price_cents":900,"vat_bp":2000},
+    {"code":"paris-brest","category":"patisseries","name":{"fr":"Paris-Brest","ar":"باريس برست","en":"Paris-Brest"},"price_cents":1000,"vat_bp":2000},
+    {"code":"foret-noire","category":"patisseries","name":{"fr":"Forêt noire (part)","ar":"فوريه نوار (قطعة)","en":"Black Forest gateau (slice)"},"price_cents":1200,"vat_bp":2000},
+    {"code":"chebakia","category":"patisserie-marocaine","name":{"fr":"Chebakia","ar":"شباكية","en":"Chebakia (sesame and honey cookies)"},"price_cents":12000,"vat_bp":2000,"sold_by_weight":true,"image":true},
+    {"code":"cornes-gazelle","category":"patisserie-marocaine","name":{"fr":"Cornes de gazelle","ar":"كعب الغزال","en":"Gazelle horns (almond pastries)"},"price_cents":16000,"vat_bp":2000,"sold_by_weight":true,"image":true},
+    {"code":"ghriba","category":"patisserie-marocaine","name":{"fr":"Ghriba","ar":"غريبة","en":"Ghriba (Moroccan shortbread)"},"price_cents":12000,"vat_bp":2000,"sold_by_weight":true,"image":true},
+    {"code":"sellou","category":"patisserie-marocaine","name":{"fr":"Sellou","ar":"سلّو","en":"Sellou (toasted flour and almond sweet)"},"price_cents":14000,"vat_bp":2000,"sold_by_weight":true,"image":true},
+    {"code":"fekkas","category":"patisserie-marocaine","name":{"fr":"Fekkas","ar":"فقاص","en":"Fekkas (twice-baked biscuits)"},"price_cents":9000,"vat_bp":2000,"sold_by_weight":true},
+    {"code":"assortiment-marocain","category":"patisserie-marocaine","name":{"fr":"Assortiment de gâteaux marocains","ar":"تشكيلة حلويات مغربية","en":"Moroccan pastry assortment"},"price_cents":15000,"vat_bp":2000,"sold_by_weight":true},
+    {"code":"briouate-amandes","category":"patisserie-marocaine","name":{"fr":"Briouate aux amandes (pièce)","ar":"بريوات باللوز (قطعة)","en":"Almond briouate (each)"},"price_cents":400,"vat_bp":2000},
+    {"code":"pastilla-lait-part","category":"patisserie-marocaine","name":{"fr":"Pastilla au lait (part)","ar":"بسطيلة بالحليب (قطعة)","en":"Milk pastilla (slice)"},"price_cents":1500,"vat_bp":2000},
+    {"code":"quiche-lorraine","category":"sale","name":{"fr":"Quiche lorraine (part)","ar":"كيش لورين (قطعة)","en":"Quiche lorraine (slice)"},"price_cents":1200,"vat_bp":2000,"image":true},
+    {"code":"pizza-part","category":"sale","name":{"fr":"Pizza (part)","ar":"بيتزا (قطعة)","en":"Pizza (slice)"},"price_cents":1000,"vat_bp":2000},
+    {"code":"sandwich-poulet","category":"sale","name":{"fr":"Sandwich poulet crudités","ar":"ساندويتش دجاج بالخضر","en":"Chicken salad sandwich"},"price_cents":2200,"vat_bp":2000},
+    {"code":"sandwich-thon","category":"sale","name":{"fr":"Sandwich thon","ar":"ساندويتش التونة","en":"Tuna sandwich"},"price_cents":2000,"vat_bp":2000}
+  ],
+  "modifierGroups": [],
+  "menus": [],
+  "rooms": [],
+  "tables": [],
+  "printersRouting": {}
+}

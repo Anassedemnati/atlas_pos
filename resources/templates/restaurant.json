@@ -1,0 +1,189 @@
+{
+  "id": "restaurant",
+  "version": 1,
+  "modules": {
+    "tables": true,
+    "kitchen": true,
+    "menus": true,
+    "customers": true,
+    "stock": false,
+    "barcode": false,
+    "scale": false
+  },
+  "settings": {
+    "day.cutoverHour": 5,
+    "till.autoLockSeconds": 120
+  },
+  "paymentMethods": [
+    {"code":"cash","name":{"fr":"Espèces","ar":"نقدا","en":"Cash"},"opens_drawer":true,"active":true},
+    {"code":"card","name":{"fr":"Carte bancaire","ar":"بطاقة بنكية","en":"Bank card"},"opens_drawer":false,"active":true},
+    {"code":"cheque","name":{"fr":"Chèque","ar":"شيك","en":"Cheque"},"opens_drawer":false,"active":false}
+  ],
+  "profiles": [
+    {"code":"gerant","name":{"fr":"Gérant","ar":"مدير","en":"Manager"},"permissions":["order.discount","order.discount.override","order.void_sent","order.free_item","ticket.cancel","ticket.reprint","drawer.open","day.close","report.x","invoice.create","catalog.manage","users.manage","settings.manage","backup.restore","backoffice.login"],"max_discount_bp":10000},
+    {"code":"caissier","name":{"fr":"Caissier","ar":"أمين الصندوق","en":"Cashier"},"permissions":["order.discount","report.x","ticket.reprint"],"max_discount_bp":1000},
+    {"code":"serveur","name":{"fr":"Serveur","ar":"نادل","en":"Waiter"},"permissions":["order.discount"],"max_discount_bp":0}
+  ],
+  "categories": [
+    {"code":"menus","name":{"fr":"Menus","ar":"قوائم الطعام","en":"Set menus"},"color":"#14213D"},
+    {"code":"entrees","name":{"fr":"Entrées","ar":"المقبلات","en":"Starters"},"color":"#2E7D4F"},
+    {"code":"plats","name":{"fr":"Plats","ar":"الأطباق الرئيسية","en":"Mains"},"color":"#B5532A"},
+    {"code":"grillades","name":{"fr":"Grillades","ar":"المشويات","en":"Grills"},"color":"#A63D3D"},
+    {"code":"desserts","name":{"fr":"Desserts","ar":"الحلويات","en":"Desserts"},"color":"#8E4A8F"},
+    {"code":"boissons-chaudes","name":{"fr":"Boissons chaudes","ar":"المشروبات الساخنة","en":"Hot drinks"},"color":"#7A4B2A"},
+    {"code":"boissons-fraiches","name":{"fr":"Boissons fraîches","ar":"المشروبات الباردة","en":"Cold drinks"},"color":"#2B6CB0"},
+    {"code":"jus","name":{"fr":"Jus","ar":"العصائر","en":"Juices"},"color":"#C27A0E"}
+  ],
+  "products": [
+    {"code":"menu-du-jour","category":"menus","name":{"fr":"Menu du jour","ar":"قائمة اليوم","en":"Menu of the day"},"price_cents":9500,"vat_bp":1000},
+    {"code":"harira","category":"entrees","name":{"fr":"Harira","ar":"حريرة","en":"Harira soup"},"price_cents":2500,"vat_bp":1000,"course":1,"modifier_groups":["sans"],"image":true},
+    {"code":"salade-marocaine","category":"entrees","name":{"fr":"Salade marocaine","ar":"سلطة مغربية","en":"Moroccan salad"},"price_cents":2500,"vat_bp":1000,"course":1,"modifier_groups":["sans"]},
+    {"code":"zaalouk","category":"entrees","name":{"fr":"Zaalouk","ar":"زعلوك","en":"Zaalouk (aubergine salad)"},"price_cents":3000,"vat_bp":1000,"course":1,"modifier_groups":["sans"]},
+    {"code":"taktouka","category":"entrees","name":{"fr":"Taktouka","ar":"طكطوكة","en":"Taktouka (pepper and tomato salad)"},"price_cents":3000,"vat_bp":1000,"course":1,"modifier_groups":["sans"]},
+    {"code":"salades-variees","category":"entrees","name":{"fr":"Assortiment de salades marocaines","ar":"تشكيلة سلطات مغربية","en":"Moroccan salad platter"},"price_cents":4500,"vat_bp":1000,"course":1,"modifier_groups":["sans"]},
+    {"code":"bissara","category":"entrees","name":{"fr":"Bissara","ar":"بيصارة","en":"Bissara (fava bean soup)"},"price_cents":2500,"vat_bp":1000,"course":1,"modifier_groups":["sans"]},
+    {"code":"pastilla-poulet","category":"entrees","name":{"fr":"Pastilla au poulet","ar":"بسطيلة بالدجاج","en":"Chicken pastilla"},"price_cents":6500,"vat_bp":1000,"course":1,"image":true},
+    {"code":"briouates","category":"entrees","name":{"fr":"Briouates (4 pièces)","ar":"بريوات (4 قطع)","en":"Briouates (4 pieces)"},"price_cents":4500,"vat_bp":1000,"course":1},
+    {"code":"tajine-poulet-citron","category":"plats","name":{"fr":"Tajine de poulet au citron confit","ar":"طاجين الدجاج بالليمون","en":"Chicken tagine with preserved lemon"},"price_cents":7000,"vat_bp":1000,"course":2,"modifier_groups":["sans"],"image":true},
+    {"code":"tajine-agneau-pruneaux","category":"plats","name":{"fr":"Tajine d'agneau aux pruneaux","ar":"طاجين لحم الغنم بالبرقوق","en":"Lamb tagine with prunes"},"price_cents":9000,"vat_bp":1000,"course":2,"modifier_groups":["sans"],"image":true},
+    {"code":"tajine-kefta-oeufs","category":"plats","name":{"fr":"Tajine de kefta aux œufs","ar":"طاجين الكفتة بالبيض","en":"Kefta tagine with eggs"},"price_cents":7000,"vat_bp":1000,"course":2,"modifier_groups":["sans"]},
+    {"code":"tajine-legumes","category":"plats","name":{"fr":"Tajine de légumes","ar":"طاجين الخضر","en":"Vegetable tagine"},"price_cents":5500,"vat_bp":1000,"course":2,"modifier_groups":["sans"]},
+    {"code":"tajine-poisson","category":"plats","name":{"fr":"Tajine de poisson","ar":"طاجين السمك","en":"Fish tagine"},"price_cents":8500,"vat_bp":1000,"course":2,"modifier_groups":["sans"]},
+    {"code":"couscous-royal","category":"plats","name":{"fr":"Couscous royal","ar":"كسكس ملكي","en":"Royal couscous"},"price_cents":9500,"vat_bp":1000,"course":2,"modifier_groups":["sans"],"image":true},
+    {"code":"couscous-sept-legumes","category":"plats","name":{"fr":"Couscous aux sept légumes","ar":"كسكس بسبع خضار","en":"Seven-vegetable couscous"},"price_cents":7500,"vat_bp":1000,"course":2,"modifier_groups":["sans"]},
+    {"code":"tanjia","category":"plats","name":{"fr":"Tanjia marrakchia","ar":"طنجية مراكشية","en":"Marrakech tanjia"},"price_cents":9000,"vat_bp":1000,"course":2,"modifier_groups":["sans"]},
+    {"code":"rfissa","category":"plats","name":{"fr":"Rfissa","ar":"الرفيسة","en":"Rfissa (chicken, lentils and msemen)"},"price_cents":8000,"vat_bp":1000,"course":2,"modifier_groups":["sans"]},
+    {"code":"brochettes-boeuf","category":"grillades","name":{"fr":"Brochettes de bœuf","ar":"أسياخ لحم البقر","en":"Beef skewers"},"price_cents":6500,"vat_bp":1000,"course":2,"modifier_groups":["cuisson","sans"],"image":true},
+    {"code":"brochettes-poulet","category":"grillades","name":{"fr":"Brochettes de poulet","ar":"أسياخ الدجاج","en":"Chicken skewers"},"price_cents":5500,"vat_bp":1000,"course":2,"modifier_groups":["sans"]},
+    {"code":"brochettes-kefta","category":"grillades","name":{"fr":"Brochettes de kefta","ar":"أسياخ الكفتة","en":"Kefta skewers"},"price_cents":5500,"vat_bp":1000,"course":2,"modifier_groups":["sans"]},
+    {"code":"cotelettes-agneau","category":"grillades","name":{"fr":"Côtelettes d'agneau","ar":"ضلوع الغنم المشوية","en":"Grilled lamb chops"},"price_cents":9500,"vat_bp":1000,"course":2,"modifier_groups":["cuisson","sans"]},
+    {"code":"entrecote-grillee","category":"grillades","name":{"fr":"Entrecôte grillée","ar":"أنتركوت مشوي","en":"Grilled rib steak"},"price_cents":8500,"vat_bp":1000,"course":2,"modifier_groups":["cuisson","sans"]},
+    {"code":"merguez-grillees","category":"grillades","name":{"fr":"Merguez grillées","ar":"مرقاز مشوي","en":"Grilled merguez sausages"},"price_cents":5000,"vat_bp":1000,"course":2,"modifier_groups":["sans"]},
+    {"code":"dorade-grillee","category":"grillades","name":{"fr":"Dorade grillée","ar":"دوراد مشوي","en":"Grilled sea bream"},"price_cents":9000,"vat_bp":1000,"course":2,"modifier_groups":["sans"]},
+    {"code":"grillade-mixte","category":"grillades","name":{"fr":"Grillade mixte","ar":"مشاوي مشكلة","en":"Mixed grill"},"price_cents":11000,"vat_bp":1000,"course":2,"modifier_groups":["sans"],"image":true},
+    {"code":"pastilla-lait","category":"desserts","name":{"fr":"Pastilla au lait","ar":"بسطيلة بالحليب","en":"Milk pastilla"},"price_cents":4000,"vat_bp":1000,"course":3},
+    {"code":"salade-oranges","category":"desserts","name":{"fr":"Salade d'oranges à la cannelle","ar":"سلطة البرتقال بالقرفة","en":"Orange salad with cinnamon"},"price_cents":2500,"vat_bp":1000,"course":3},
+    {"code":"creme-caramel","category":"desserts","name":{"fr":"Crème caramel","ar":"كريم كراميل","en":"Crème caramel"},"price_cents":2500,"vat_bp":1000,"course":3},
+    {"code":"patisseries-marocaines","category":"desserts","name":{"fr":"Assiette de pâtisseries marocaines","ar":"طبق حلويات مغربية","en":"Moroccan pastry plate"},"price_cents":3500,"vat_bp":1000,"course":3,"image":true},
+    {"code":"fruits-de-saison","category":"desserts","name":{"fr":"Fruits de saison","ar":"فواكه الموسم","en":"Seasonal fruit"},"price_cents":3000,"vat_bp":1000,"course":3},
+    {"code":"msemen-miel","category":"desserts","name":{"fr":"Msemen au miel","ar":"مسمن بالعسل","en":"Msemen with honey"},"price_cents":2000,"vat_bp":1000,"course":3},
+    {"code":"the-menthe","category":"boissons-chaudes","name":{"fr":"Thé à la menthe","ar":"أتاي بالنعناع","en":"Mint tea"},"price_cents":1200,"vat_bp":1000,"image":true},
+    {"code":"cafe-noir","category":"boissons-chaudes","name":{"fr":"Café noir","ar":"قهوة سوداء","en":"Black coffee"},"price_cents":1000,"vat_bp":1000,"image":true},
+    {"code":"cafe-creme","category":"boissons-chaudes","name":{"fr":"Café crème","ar":"قهوة بالحليب","en":"Coffee with milk"},"price_cents":1300,"vat_bp":1000},
+    {"code":"cappuccino","category":"boissons-chaudes","name":{"fr":"Cappuccino","ar":"كابتشينو","en":"Cappuccino"},"price_cents":1800,"vat_bp":1000},
+    {"code":"verveine","category":"boissons-chaudes","name":{"fr":"Verveine (louiza)","ar":"لويزة","en":"Lemon verbena tea"},"price_cents":1200,"vat_bp":1000},
+    {"code":"eau-50cl","category":"boissons-fraiches","name":{"fr":"Eau minérale 50 cl","ar":"ماء معدني 50 cl","en":"Mineral water 50 cl"},"price_cents":800,"vat_bp":1000},
+    {"code":"eau-1-5l","category":"boissons-fraiches","name":{"fr":"Eau minérale 1,5 L","ar":"ماء معدني 1,5 لتر","en":"Mineral water 1.5 L"},"price_cents":1200,"vat_bp":1000},
+    {"code":"eau-gazeuse","category":"boissons-fraiches","name":{"fr":"Eau gazeuse 33 cl","ar":"ماء غازي 33 cl","en":"Sparkling water 33 cl"},"price_cents":1200,"vat_bp":1000},
+    {"code":"soda","category":"boissons-fraiches","name":{"fr":"Soda 33 cl","ar":"مشروب غازي 33 cl","en":"Soft drink 33 cl"},"price_cents":1200,"vat_bp":1000},
+    {"code":"lben","category":"boissons-fraiches","name":{"fr":"Lben","ar":"لبن","en":"Lben (buttermilk)"},"price_cents":1200,"vat_bp":1000},
+    {"code":"jus-orange","category":"jus","name":{"fr":"Jus d'orange pressé","ar":"عصير البرتقال الطبيعي","en":"Fresh orange juice"},"price_cents":1800,"vat_bp":1000,"image":true},
+    {"code":"citronnade-menthe","category":"jus","name":{"fr":"Citronnade à la menthe","ar":"ليموناضة بالنعناع","en":"Mint lemonade"},"price_cents":1800,"vat_bp":1000},
+    {"code":"jus-avocat","category":"jus","name":{"fr":"Jus d'avocat","ar":"عصير الأفوكادو","en":"Avocado juice"},"price_cents":2200,"vat_bp":1000,"image":true},
+    {"code":"jus-banane","category":"jus","name":{"fr":"Jus de banane","ar":"عصير الموز","en":"Banana juice"},"price_cents":1800,"vat_bp":1000},
+    {"code":"jus-pomme","category":"jus","name":{"fr":"Jus de pomme","ar":"عصير التفاح","en":"Apple juice"},"price_cents":1800,"vat_bp":1000},
+    {"code":"jus-fraise","category":"jus","name":{"fr":"Jus de fraise","ar":"عصير الفراولة","en":"Strawberry juice"},"price_cents":2000,"vat_bp":1000},
+    {"code":"cocktail-fruits","category":"jus","name":{"fr":"Cocktail de fruits","ar":"كوكتيل فواكه","en":"Fruit cocktail"},"price_cents":2500,"vat_bp":1000}
+  ],
+  "modifierGroups": [
+    {
+      "code": "cuisson",
+      "name": {"fr":"Cuisson","ar":"درجة الطهي","en":"Doneness"},
+      "min_select": 1,
+      "max_select": 1,
+      "modifiers": [
+        {"name":{"fr":"Saignant","ar":"قليل الطهي","en":"Rare"}},
+        {"name":{"fr":"À point","ar":"متوسط الطهي","en":"Medium"}},
+        {"name":{"fr":"Bien cuit","ar":"جيد الطهي","en":"Well done"}}
+      ]
+    },
+    {
+      "code": "sans",
+      "name": {"fr":"Sans…","ar":"بدون…","en":"Without…"},
+      "min_select": 0,
+      "max_select": 5,
+      "modifiers": [
+        {"name":{"fr":"Sans oignon","ar":"بدون بصل","en":"No onion"}},
+        {"name":{"fr":"Sans piment","ar":"بدون فلفل حار","en":"No chili"}},
+        {"name":{"fr":"Sans coriandre","ar":"بدون كزبرة","en":"No coriander"}},
+        {"name":{"fr":"Sans cumin","ar":"بدون كمون","en":"No cumin"}},
+        {"name":{"fr":"Sans sel","ar":"بدون ملح","en":"No salt"}}
+      ]
+    }
+  ],
+  "menus": [
+    {
+      "product": "menu-du-jour",
+      "courses": [
+        {
+          "name": {"fr":"Entrée","ar":"المقبلات","en":"Starter"},
+          "items": [
+            {"product":"harira"},
+            {"product":"salade-marocaine"},
+            {"product":"zaalouk"},
+            {"product":"bissara"},
+            {"product":"pastilla-poulet","supplement_cents":4000}
+          ]
+        },
+        {
+          "name": {"fr":"Plat","ar":"الطبق الرئيسي","en":"Main course"},
+          "items": [
+            {"product":"tajine-poulet-citron"},
+            {"product":"tajine-kefta-oeufs"},
+            {"product":"tajine-legumes"},
+            {"product":"couscous-sept-legumes"},
+            {"product":"brochettes-poulet"},
+            {"product":"tajine-agneau-pruneaux","supplement_cents":2000},
+            {"product":"brochettes-boeuf","supplement_cents":500}
+          ]
+        },
+        {
+          "name": {"fr":"Boisson","ar":"المشروب","en":"Drink"},
+          "items": [
+            {"product":"eau-50cl"},
+            {"product":"soda"},
+            {"product":"the-menthe"},
+            {"product":"cafe-noir"},
+            {"product":"jus-orange","supplement_cents":600}
+          ]
+        }
+      ]
+    }
+  ],
+  "rooms": [
+    {"code":"salle","name":{"fr":"Salle","ar":"القاعة","en":"Dining room"}},
+    {"code":"terrasse","name":{"fr":"Terrasse","ar":"التراس","en":"Terrace"}}
+  ],
+  "tables": [
+    {"room":"salle","label":"1","shape":"square","x":40,"y":40,"w":120,"h":120,"seats":4},
+    {"room":"salle","label":"2","shape":"square","x":200,"y":40,"w":120,"h":120,"seats":4},
+    {"room":"salle","label":"3","shape":"square","x":360,"y":40,"w":120,"h":120,"seats":4},
+    {"room":"salle","label":"4","shape":"square","x":520,"y":40,"w":120,"h":120,"seats":4},
+    {"room":"salle","label":"5","shape":"rect","x":720,"y":40,"w":220,"h":120,"seats":8},
+    {"room":"salle","label":"6","shape":"round","x":40,"y":220,"w":120,"h":120,"seats":4},
+    {"room":"salle","label":"7","shape":"round","x":200,"y":220,"w":120,"h":120,"seats":4},
+    {"room":"salle","label":"8","shape":"round","x":360,"y":220,"w":120,"h":120,"seats":4},
+    {"room":"salle","label":"9","shape":"round","x":520,"y":220,"w":120,"h":120,"seats":4},
+    {"room":"salle","label":"10","shape":"round","x":680,"y":220,"w":120,"h":120,"seats":4},
+    {"room":"salle","label":"11","shape":"round","x":840,"y":220,"w":120,"h":120,"seats":4},
+    {"room":"salle","label":"12","shape":"rect","x":40,"y":420,"w":200,"h":120,"seats":6},
+    {"room":"salle","label":"13","shape":"rect","x":280,"y":420,"w":200,"h":120,"seats":6},
+    {"room":"salle","label":"14","shape":"rect","x":520,"y":420,"w":200,"h":120,"seats":6},
+    {"room":"terrasse","label":"T1","shape":"square","x":100,"y":100,"w":140,"h":140,"seats":4},
+    {"room":"terrasse","label":"T2","shape":"square","x":400,"y":100,"w":140,"h":140,"seats":4},
+    {"room":"terrasse","label":"T3","shape":"square","x":700,"y":100,"w":140,"h":140,"seats":4},
+    {"room":"terrasse","label":"T4","shape":"round","x":100,"y":340,"w":140,"h":140,"seats":4},
+    {"room":"terrasse","label":"T5","shape":"round","x":400,"y":340,"w":140,"h":140,"seats":4},
+    {"room":"terrasse","label":"T6","shape":"round","x":700,"y":340,"w":140,"h":140,"seats":4}
+  ],
+  "printersRouting": {
+    "menus": "kitchen",
+    "entrees": "kitchen",
+    "plats": "kitchen",
+    "grillades": "kitchen",
+    "desserts": "kitchen",
+    "boissons-chaudes": "bar",
+    "boissons-fraiches": "bar",
+    "jus": "bar"
+  }
+}

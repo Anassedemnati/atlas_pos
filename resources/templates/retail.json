@@ -1,0 +1,74 @@
+{
+  "id": "retail",
+  "version": 1,
+  "modules": {
+    "tables": false,
+    "kitchen": false,
+    "menus": false,
+    "customers": false,
+    "stock": true,
+    "barcode": true,
+    "scale": false
+  },
+  "settings": {
+    "day.cutoverHour": 4,
+    "till.autoLockSeconds": 90
+  },
+  "paymentMethods": [
+    {"code":"cash","name":{"fr":"Espèces","ar":"نقدا","en":"Cash"},"opens_drawer":true,"active":true},
+    {"code":"card","name":{"fr":"Carte bancaire","ar":"بطاقة بنكية","en":"Bank card"},"opens_drawer":false,"active":true},
+    {"code":"cheque","name":{"fr":"Chèque","ar":"شيك","en":"Cheque"},"opens_drawer":false,"active":false}
+  ],
+  "profiles": [
+    {"code":"gerant","name":{"fr":"Gérant","ar":"مدير","en":"Manager"},"permissions":["order.discount","order.discount.override","order.void_sent","order.free_item","ticket.cancel","ticket.reprint","drawer.open","day.close","report.x","invoice.create","catalog.manage","users.manage","settings.manage","backup.restore","backoffice.login"],"max_discount_bp":10000},
+    {"code":"caissier","name":{"fr":"Caissier","ar":"أمين الصندوق","en":"Cashier"},"permissions":["order.discount","report.x","ticket.reprint"],"max_discount_bp":1000},
+    {"code":"serveur","name":{"fr":"Serveur","ar":"نادل","en":"Waiter"},"permissions":["order.discount"],"max_discount_bp":0}
+  ],
+  "categories": [
+    {"code":"epicerie","name":{"fr":"Épicerie","ar":"البقالة","en":"Grocery"},"color":"#A0621E"},
+    {"code":"boissons","name":{"fr":"Boissons","ar":"المشروبات","en":"Beverages"},"color":"#2B6CB0"},
+    {"code":"laitiers","name":{"fr":"Produits laitiers et œufs","ar":"منتجات الألبان والبيض","en":"Dairy and eggs"},"color":"#2E7D4F"},
+    {"code":"biscuits","name":{"fr":"Biscuits et confiserie","ar":"البسكويت والحلويات","en":"Biscuits and sweets"},"color":"#8E4A8F"},
+    {"code":"hygiene","name":{"fr":"Hygiène et beauté","ar":"النظافة والعناية الشخصية","en":"Personal care"},"color":"#0F8A8A"},
+    {"code":"entretien","name":{"fr":"Entretien de la maison","ar":"منتجات التنظيف المنزلي","en":"Household cleaning"},"color":"#C27A0E"}
+  ],
+  "products": [
+    {"code":"sucre-1kg","category":"epicerie","name":{"fr":"Sucre 1 kg","ar":"سكر 1 كلغ","en":"Sugar 1 kg"},"price_cents":800,"vat_bp":700,"barcode":"2000000000015","stock_tracked":true,"stock_milli":24000,"low_stock_milli":6000,"image":true},
+    {"code":"huile-1l","category":"epicerie","name":{"fr":"Huile de table 1 L","ar":"زيت المائدة 1 لتر","en":"Cooking oil 1 L"},"price_cents":1900,"vat_bp":700,"barcode":"2000000000022","stock_tracked":true,"stock_milli":24000,"low_stock_milli":6000,"image":true},
+    {"code":"farine-1kg","category":"epicerie","name":{"fr":"Farine de blé 1 kg","ar":"دقيق القمح 1 كلغ","en":"Wheat flour 1 kg"},"price_cents":500,"vat_bp":0,"barcode":"2000000000039","stock_tracked":true,"stock_milli":24000,"low_stock_milli":6000},
+    {"code":"semoule-1kg","category":"epicerie","name":{"fr":"Semoule 1 kg","ar":"سميد 1 كلغ","en":"Semolina 1 kg"},"price_cents":600,"vat_bp":0,"barcode":"2000000000046","stock_tracked":true,"stock_milli":24000,"low_stock_milli":6000},
+    {"code":"couscous-1kg","category":"epicerie","name":{"fr":"Couscous 1 kg","ar":"كسكس 1 كلغ","en":"Couscous 1 kg"},"price_cents":1000,"vat_bp":700,"barcode":"2000000000053","stock_tracked":true,"stock_milli":24000,"low_stock_milli":6000},
+    {"code":"spaghetti-500g","category":"epicerie","name":{"fr":"Spaghetti 500 g","ar":"سباغيتي 500 غ","en":"Spaghetti 500 g"},"price_cents":700,"vat_bp":700,"barcode":"2000000000060","stock_tracked":true,"stock_milli":24000,"low_stock_milli":6000},
+    {"code":"riz-1kg","category":"epicerie","name":{"fr":"Riz long grain 1 kg","ar":"أرز طويل الحبة 1 كلغ","en":"Long-grain rice 1 kg"},"price_cents":1300,"vat_bp":700,"barcode":"2000000000077","stock_tracked":true,"stock_milli":24000,"low_stock_milli":6000},
+    {"code":"the-vert-200g","category":"epicerie","name":{"fr":"Thé vert 200 g","ar":"شاي أخضر 200 غ","en":"Green tea 200 g"},"price_cents":1800,"vat_bp":2000,"barcode":"2000000000084","stock_tracked":true,"stock_milli":24000,"low_stock_milli":6000,"image":true},
+    {"code":"cafe-moulu-250g","category":"epicerie","name":{"fr":"Café moulu 250 g","ar":"قهوة مطحونة 250 غ","en":"Ground coffee 250 g"},"price_cents":3200,"vat_bp":2000,"barcode":"2000000000091","stock_tracked":true,"stock_milli":24000,"low_stock_milli":6000,"image":true},
+    {"code":"sardines-125g","category":"epicerie","name":{"fr":"Sardines à l'huile 125 g","ar":"سردين بالزيت 125 غ","en":"Sardines in oil 125 g"},"price_cents":800,"vat_bp":700,"barcode":"2000000000107","stock_tracked":true,"stock_milli":24000,"low_stock_milli":6000},
+    {"code":"concentre-tomate-200g","category":"epicerie","name":{"fr":"Concentré de tomate 200 g","ar":"معجون الطماطم 200 غ","en":"Tomato paste 200 g"},"price_cents":600,"vat_bp":700,"barcode":"2000000000114","stock_tracked":true,"stock_milli":24000,"low_stock_milli":6000},
+    {"code":"eau-1-5l","category":"boissons","name":{"fr":"Eau minérale 1,5 L","ar":"ماء معدني 1,5 لتر","en":"Mineral water 1.5 L"},"price_cents":600,"vat_bp":700,"barcode":"2000000000121","stock_tracked":true,"stock_milli":24000,"low_stock_milli":6000,"image":true},
+    {"code":"soda-1l","category":"boissons","name":{"fr":"Soda 1 L","ar":"مشروب غازي 1 لتر","en":"Soft drink 1 L"},"price_cents":900,"vat_bp":2000,"barcode":"2000000000138","stock_tracked":true,"stock_milli":24000,"low_stock_milli":6000,"image":true},
+    {"code":"jus-orange-1l","category":"boissons","name":{"fr":"Jus d'orange 1 L","ar":"عصير البرتقال 1 لتر","en":"Orange juice 1 L"},"price_cents":1400,"vat_bp":2000,"barcode":"2000000000145","stock_tracked":true,"stock_milli":24000,"low_stock_milli":6000},
+    {"code":"limonade-33cl","category":"boissons","name":{"fr":"Limonade 33 cl","ar":"ليموناضة 33 cl","en":"Lemonade 33 cl"},"price_cents":500,"vat_bp":2000,"barcode":"2000000000152","stock_tracked":true,"stock_milli":24000,"low_stock_milli":6000},
+    {"code":"lait-uht-1l","category":"laitiers","name":{"fr":"Lait UHT demi-écrémé 1 L","ar":"حليب نصف دسم 1 لتر","en":"Semi-skimmed UHT milk 1 L"},"price_cents":800,"vat_bp":0,"barcode":"2000000000169","stock_tracked":true,"stock_milli":24000,"low_stock_milli":6000,"image":true},
+    {"code":"lben-1l","category":"laitiers","name":{"fr":"Lben 1 L","ar":"لبن 1 لتر","en":"Lben (buttermilk) 1 L"},"price_cents":800,"vat_bp":0,"barcode":"2000000000176","stock_tracked":true,"stock_milli":24000,"low_stock_milli":6000},
+    {"code":"oeufs-12","category":"laitiers","name":{"fr":"Œufs plateau de 12","ar":"بيض (12 بيضة)","en":"Eggs, tray of 12"},"price_cents":2000,"vat_bp":0,"barcode":"2000000000183","stock_tracked":true,"stock_milli":24000,"low_stock_milli":6000,"image":true},
+    {"code":"fromage-portions-8","category":"laitiers","name":{"fr":"Fromage fondu en portions x8","ar":"جبن مثلثات x8","en":"Processed cheese portions x8"},"price_cents":1200,"vat_bp":2000,"barcode":"2000000000190","stock_tracked":true,"stock_milli":24000,"low_stock_milli":6000},
+    {"code":"biscuits-secs-200g","category":"biscuits","name":{"fr":"Biscuits secs 200 g","ar":"بسكويت جاف 200 غ","en":"Dry biscuits 200 g"},"price_cents":700,"vat_bp":2000,"barcode":"2000000000206","stock_tracked":true,"stock_milli":24000,"low_stock_milli":6000,"image":true},
+    {"code":"gaufrettes-chocolat","category":"biscuits","name":{"fr":"Gaufrettes au chocolat","ar":"ويفر بالشوكولاتة","en":"Chocolate wafers"},"price_cents":500,"vat_bp":2000,"barcode":"2000000000213","stock_tracked":true,"stock_milli":24000,"low_stock_milli":6000},
+    {"code":"chocolat-tablette-100g","category":"biscuits","name":{"fr":"Tablette de chocolat 100 g","ar":"لوح شوكولاتة 100 غ","en":"Chocolate bar 100 g"},"price_cents":1500,"vat_bp":2000,"barcode":"2000000000220","stock_tracked":true,"stock_milli":24000,"low_stock_milli":6000,"image":true},
+    {"code":"chips-nature-40g","category":"biscuits","name":{"fr":"Chips nature 40 g","ar":"شيبس عادي 40 غ","en":"Plain crisps 40 g"},"price_cents":400,"vat_bp":2000,"barcode":"2000000000237","stock_tracked":true,"stock_milli":24000,"low_stock_milli":6000},
+    {"code":"bonbons-assortis-200g","category":"biscuits","name":{"fr":"Bonbons assortis 200 g","ar":"حلويات متنوعة 200 غ","en":"Assorted sweets 200 g"},"price_cents":1200,"vat_bp":2000,"barcode":"2000000000244","stock_tracked":true,"stock_milli":24000,"low_stock_milli":6000},
+    {"code":"savon-125g","category":"hygiene","name":{"fr":"Savon de toilette 125 g","ar":"صابون 125 غ","en":"Toilet soap 125 g"},"price_cents":500,"vat_bp":2000,"barcode":"2000000000251","stock_tracked":true,"stock_milli":24000,"low_stock_milli":6000},
+    {"code":"shampoing-250ml","category":"hygiene","name":{"fr":"Shampoing 250 ml","ar":"شامبو 250 مل","en":"Shampoo 250 ml"},"price_cents":2500,"vat_bp":2000,"barcode":"2000000000268","stock_tracked":true,"stock_milli":24000,"low_stock_milli":6000,"image":true},
+    {"code":"dentifrice-75ml","category":"hygiene","name":{"fr":"Dentifrice 75 ml","ar":"معجون الأسنان 75 مل","en":"Toothpaste 75 ml"},"price_cents":1800,"vat_bp":2000,"barcode":"2000000000275","stock_tracked":true,"stock_milli":24000,"low_stock_milli":6000},
+    {"code":"papier-toilette-6","category":"hygiene","name":{"fr":"Papier toilette x6","ar":"ورق التواليت x6","en":"Toilet paper x6"},"price_cents":2200,"vat_bp":2000,"barcode":"2000000000282","stock_tracked":true,"stock_milli":24000,"low_stock_milli":6000},
+    {"code":"lessive-1kg","category":"entretien","name":{"fr":"Lessive en poudre 1 kg","ar":"مسحوق الغسيل 1 كلغ","en":"Washing powder 1 kg"},"price_cents":3000,"vat_bp":2000,"barcode":"2000000000299","stock_tracked":true,"stock_milli":24000,"low_stock_milli":6000,"image":true},
+    {"code":"liquide-vaisselle-500ml","category":"entretien","name":{"fr":"Liquide vaisselle 500 ml","ar":"سائل غسل الأواني 500 مل","en":"Washing-up liquid 500 ml"},"price_cents":1500,"vat_bp":2000,"barcode":"2000000000305","stock_tracked":true,"stock_milli":24000,"low_stock_milli":6000},
+    {"code":"eau-de-javel-1l","category":"entretien","name":{"fr":"Eau de Javel 1 L","ar":"ماء جافيل 1 لتر","en":"Bleach 1 L"},"price_cents":800,"vat_bp":2000,"barcode":"2000000000312","stock_tracked":true,"stock_milli":24000,"low_stock_milli":6000},
+    {"code":"eponges-3","category":"entretien","name":{"fr":"Éponges x3","ar":"إسفنج x3","en":"Sponges x3"},"price_cents":600,"vat_bp":2000,"barcode":"2000000000329","stock_tracked":true,"stock_milli":24000,"low_stock_milli":6000}
+  ],
+  "modifierGroups": [],
+  "menus": [],
+  "rooms": [],
+  "tables": [],
+  "printersRouting": {}
+}

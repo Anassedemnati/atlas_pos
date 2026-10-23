@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createEventBus } from '../../../src/main/application/events'
-import type { DomainEvent } from '../../../src/main/application/events'
+import type { DomainEvent, DomainEventType } from '../../../src/main/application/events'
 import type { EventBus } from '../../../src/main/application/ports'
 import { createUnitOfWork, type UnitOfWork } from '../../../src/main/infrastructure/db/uow'
 import { fixedClock } from '../../helpers/clock'
@@ -21,7 +21,7 @@ describe('unit of work', () => {
   })
   afterEach(() => t.cleanup())
 
-  const subscribeAll = (...types: string[]): void => {
+  const subscribeAll = (...types: DomainEventType[]): void => {
     for (const type of types) bus.subscribe(type, (e) => published.push(e))
   }
   const settingCount = (): number =>
