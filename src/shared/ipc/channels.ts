@@ -1,0 +1,98 @@
+import type { AtlasEventType } from '../dto'
+import type { Channel } from '../ipc-contract'
+
+// Plain lists for the preload, which must not bundle the schemas. The checks below fail to compile
+// when a contract channel or an event type is missing here (a unit test checks the other direction).
+
+/** The single IPC channel events travel on, main to renderer. */
+export const EVENT_CHANNEL = 'atlas:event'
+
+export const CHANNELS = [
+  'app.startupReport',
+  'app.quitToDesktop',
+  'system.pickFolder',
+  'system.pickFile',
+  'display.update',
+  'users.listTill',
+  'users.loginPin',
+  'users.logout',
+  'users.current',
+  'users.authorizeOverride',
+  'users.verifyTechnician',
+  'users.saveUser',
+  'users.saveProfile',
+  'catalog.list',
+  'catalog.saveCategory',
+  'catalog.deleteCategory',
+  'catalog.saveProduct',
+  'catalog.deleteProduct',
+  'catalog.quickCreateProduct',
+  'catalog.adjustStock',
+  'catalog.saveModifierGroup',
+  'catalog.saveMenu',
+  'catalog.reorder',
+  'catalog.previewImport',
+  'catalog.applyImport',
+  'catalog.exportSheet',
+  'orders.open',
+  'orders.get',
+  'orders.setNote',
+  'orders.setCovers',
+  'orders.assignCustomer',
+  'orders.park',
+  'orders.resume',
+  'orders.addLine',
+  'orders.setLineQty',
+  'orders.voidLine',
+  'orders.setLineDiscount',
+  'orders.setTicketDiscount',
+  'orders.setFree',
+  'orders.sendToKitchen',
+  'orders.sendNextCourse',
+  'orders.transferTable',
+  'orders.mergeTables',
+  'orders.moveLines',
+  'orders.addPayment',
+  'orders.removePayment',
+  'orders.close',
+  'orders.splitAndClose',
+  'tickets.cancel',
+  'tickets.reprint',
+  'days.current',
+  'days.gate',
+  'days.xReport',
+  'days.close',
+  'customers.search',
+  'customers.save',
+  'settings.getAll',
+  'settings.set',
+  'backup.status',
+  'backup.list',
+  'backup.run',
+  'backup.restore',
+  'printing.printers',
+  'printing.jobs',
+  'printing.reprintJob',
+  'printing.dismissJob',
+  'hardware.detect',
+  'hardware.testPrinter',
+  'hardware.openDrawer'
+] as const satisfies readonly Channel[]
+
+export const EVENT_TYPES = [
+  'ticket.closed',
+  'order.changed',
+  'order.sent',
+  'day.closed',
+  'settings.changed',
+  'catalog.changed',
+  'backup.status',
+  'print.status',
+  'display.order'
+] as const satisfies readonly AtlasEventType[]
+
+type Missing<All, Listed> = [Exclude<All, Listed>] extends [never] ? true : Exclude<All, Listed>
+const everyChannelListed: Missing<Channel, (typeof CHANNELS)[number]> = true
+const everyEventListed: Missing<AtlasEventType, (typeof EVENT_TYPES)[number]> = true
+void everyChannelListed
+void everyEventListed
