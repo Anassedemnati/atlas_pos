@@ -34,8 +34,7 @@ export function Start() {
   }
 
   const fromProfile = async () => {
-    // No extension filter: `system.pickFile` accepts extensions of 8 characters at most, `atlasprofile` has 12.
-    const path = await pickFile(t('setupWizard.start.profileTitle'))
+    const path = await pickFile(t('setupWizard.start.profileTitle'), ['atlasprofile'])
     if (!path) return
     setWorking(true)
     const applied = await api.call('setup.applyProfile', { path })

@@ -622,6 +622,9 @@
   place-items: center;
   padding: var(--space-5);
   padding-block-end: calc(var(--space-5) + var(--kbd-height));
+  /* A definite row: `.modal`'s `max-block-size: 100%` then works, so a tall dialog's body scrolls and its footer stays
+     visible (instead of running under the on-screen keyboard). */
+  grid-template-rows: minmax(0, 1fr);
   background: rgb(20 33 61 / 55%);
 }
 .modal {

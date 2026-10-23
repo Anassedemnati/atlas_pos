@@ -166,9 +166,3 @@
 .till-frame .tabs--bar .tab {
   padding-inline: var(--space-3);
 }
-
-/* The kit centres a dialog in a grid whose row has no definite height, so a tall dialog ran under the on-screen
-   keyboard instead of scrolling. A definite row makes `max-block-size: 100%` work: the body scrolls and the footer stays visible. */
-.modal-backdrop {
-  grid-template-rows: minmax(0, 1fr);
-}

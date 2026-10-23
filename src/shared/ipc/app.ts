@@ -25,7 +25,7 @@ export const appChannels = {
   'system.pickFile': def<string | null>()(
     z.strictObject({
       title: z.string().max(200).optional(),
-      extensions: z.array(z.string().regex(/^[a-z0-9]{1,8}$/)).max(20).optional()
+      extensions: z.array(z.string().regex(/^[a-z0-9]{1,16}$/)).max(20).optional()
     }),
     'handler'
   ),
