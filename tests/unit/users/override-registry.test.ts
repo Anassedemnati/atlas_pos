@@ -76,4 +76,18 @@ describe('override registry', () => {
     registry.issue('u-amine', 'order.void_sent')
     expect(registry.size()).toBe(1)
   })
+
+  it('peek tells whether consume would accept the token, without spending it', () => {
+    const clock = mutableClock()
+    const registry = createOverrideRegistry(clock)
+    const token = registry.issue('u-amine', 'order.discount.override')
+    expect(registry.peek(token, 'order.discount.override')).toBe(true)
+    expect(registry.peek(token, 'order.free_item')).toBe(false)
+    expect(registry.peek(token, 'order.discount.override')).toBe(true)
+    expect(registry.consume(token, 'order.discount.override')).toMatchObject({ byUserId: 'u-amine' })
+    expect(registry.peek(token, 'order.discount.override')).toBe(false)
+    const late = registry.issue('u-amine', 'order.discount.override')
+    clock.advance(61_000)
+    expect(registry.peek(late, 'order.discount.override')).toBe(false)
+  })
 })

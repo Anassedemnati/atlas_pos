@@ -12,6 +12,7 @@ import type { Tx } from '../../../infrastructure/db/uow'
 import { AppErrorException } from '../../errors'
 import { parseInput } from '../catalog/input'
 import {
+  assertDiscountApprovable,
   checkDiscountLimit,
   discountGate,
   loadOrder,
@@ -102,7 +103,8 @@ export function closeInTx(
     { lines: order.lines, discount: order.discount, approvedBp: order.discountApprovedBp },
     check.slackCents
   )
-  const audit = check.settle ? settleDiscount(ctx, check.gate) : {}
+  // A token is spent only once all the rest is done (it all rolls back if spending it fails).
+  if (check.settle) assertDiscountApprovable(ctx, check.gate)
   sendLines(tx, ctx, session, order, unsentLines(order.lines))
 
   const header = ticketHeader(tx, ctx, session, 'sale', order.dayId)
@@ -134,6 +136,7 @@ export function closeInTx(
     snapshot
   }
   ctx.tickets.insert(tx, ticket)
+  const audit = check.settle ? settleDiscount(ctx, check.gate) : {}
   logOrder(tx, ctx, session, { ...order, status: 'closed', discountApprovedBp: approvedBp }, 'ticket.closed', {
     ticketId: ticket.id,
     label: ticket.label,
@@ -166,8 +169,10 @@ export function createCloseUseCases(ctx: Sales): CloseUseCases {
       const shares = new Map(priceLines(order.lines, order.discount).map((p) => [p.lineId, p.ticketDiscount]))
       const asAmount = (cents: number) => (order.discount ? { kind: 'amount' as const, cents, reason: order.discount.reason } : null)
       const gate = discountGate(token)
-      // A proportional share may carry a centime more than its exact part, per line.
-      const slackOf = (lines: StoredLine[]): number => activeLines(lines).length
+      // A proportional share of the ticket discount may carry a centime more than its exact part: the
+      // allowance is one centime per line that received a share, and none without a ticket discount.
+      const slackOf = (lines: StoredLine[]): number =>
+        order.discount === null ? 0 : activeLines(lines).filter((l) => !l.free && (shares.get(l.id) ?? 0) > 0).length
       const now = tx.clock.now().toISOString()
 
       const tickets = groups.map((group, i) => {

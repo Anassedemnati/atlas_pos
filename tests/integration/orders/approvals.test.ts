@@ -150,4 +150,84 @@ describe('orders: discount approvals stay with their order', () => {
     const dto = ok(h.orders.setFree(h.cashier, o.id, o.lines[1]!.id, true, 'Geste', freeToken, discountToken))
     expect(dto).toMatchObject({ discountApprovedBp: 1172, totals: { totalCents: 6180 } })
   })
+
+  describe('split rounding allowance and stored approvals (review probes)', () => {
+    /** Extra products: a 500,00 steak, bread at 12,00 / kg (1 g = 1 centime), meat at 120,00 / kg, a free water, 10,05 items. */
+    const product = (id: string, price: number, weighed = false): string => {
+      h.t.db
+        .prepare('INSERT INTO products (id, category_id, name_json, price_cents, vat_bp, sold_by_weight) VALUES (?, ?, ?, ?, 1000, ?)')
+        .run(id, h.fx.categories.plats, JSON.stringify({ fr: id }), price, weighed ? 1 : 0)
+      return id
+    }
+    const line = (orderId: string, productId: string, qtyMilli = 1000) =>
+      ok(h.orders.addLine(h.cashier, orderId, { productId, qtyMilli, modifierIds: [], note: '' })).lines.at(-1)!.id
+    const splitSteakOff = (orderId: string, steakLine: string) =>
+      h.tickets.splitAndClose(h.cashier, orderId, [{ lineIds: [steakLine], payments: [{ methodCode: 'cash', amountCents: 50000 }] }])
+
+    it.each([
+      ['A: 100 % off a 1-centime weighed line', 'bread', 1200, 1, 10000, 0],
+      ['B: 18,33 % off a 12-centime weighed line', 'meat', 12000, 1, 1833, 0],
+      ['B2: 12,08 % off a 48-centime weighed line', 'meat', 12000, 4, 1208, 0],
+      ['C: 14,10 % off a 10,00 line beside 40 zero-price lines', 'cheap', 1000, 1000, 1410, 40]
+    ] as const)('%s inside a 500,00 order: splitting the steak off is refused', (_name, id, price, qty, bp, zeros) => {
+      const steak = product('steak', 50000)
+      product(id, price, id !== 'cheap')
+      const water = product('water', 0)
+      const o = ok(h.orders.openOrder(h.cashier, { type: 'counter' }))
+      const steakLine = line(o.id, steak)
+      const tiny = line(o.id, id, qty)
+      for (let i = 0; i < zeros; i++) line(o.id, water)
+      ok(h.orders.setLineDiscount(h.cashier, o.id, tiny, pct(bp)))
+      expect(code(splitSteakOff(o.id, steakLine))).toBe('discount_over_limit')
+      expect(h.count('tickets')).toBe(0)
+      // Whatever the order holds, the cashier's next discount is judged against 10 %.
+      expect(approvalOf(o.id)!).toBeLessThanOrEqual(1000)
+    })
+
+    it('the allowance covers a ticket discount share, and the stored approval never exceeds the session limit', () => {
+      const item = product('item', 1005)
+      const o = ok(h.orders.openOrder(h.cashier, { type: 'counter' }))
+      const lines = [line(o.id, item), line(o.id, item), line(o.id, item)]
+      // 10 % of 30,15 = 3,02, shared 1,01 / 1,01 / 1,00.
+      ok(h.orders.setTicketDiscount(h.cashier, o.id, pct(1000)))
+      const [part] = ok(
+        h.tickets.splitAndClose(h.cashier, o.id, [{ lineIds: [lines[2]!], payments: [{ methodCode: 'card', amountCents: 905 }] }])
+      )
+      expect(part!.totalCents).toBe(905)
+      // What is left (2,02 off 20,10, 10,05 %) passes on its two centimes but is stored as 10 %.
+      expect(ok(h.orders.getOrder(h.cashier, o.id)).totals.totalCents).toBe(1808)
+      expect(approvalOf(o.id)).toBe(1000)
+    })
+
+    it('a manager-approved amount does not widen as the bill grows: the cashier cannot then set a larger percentage', () => {
+      const o = order(h.cashier, h.fx.products.tajine)
+      ok(h.orders.setTicketDiscount(h.manager, o.id, { kind: 'amount', cents: 3500, reason: 'x' }))
+      expect(approvalOf(o.id)).toBe(5000)
+      ok(h.orders.addLine(h.cashier, o.id, { productId: h.fx.products.couscous, qtyMilli: 1000, modifierIds: [], note: '' }))
+      // 35,00 off 165,00.
+      expect(approvalOf(o.id)).toBe(2122)
+      expect(h.orders.setTicketDiscount(h.cashier, o.id, pct(5000))).toMatchObject({
+        ok: false,
+        error: { code: 'discount_over_limit', params: { effectiveBp: 5000, limitBp: 2122 } }
+      })
+    })
+
+    it('a percentage keeps its approval when the bill grows', () => {
+      const o = order(h.cashier, h.fx.products.tajine)
+      ok(h.orders.setTicketDiscount(h.manager, o.id, pct(3000)))
+      ok(h.orders.addLine(h.cashier, o.id, { productId: h.fx.products.couscous, qtyMilli: 1000, modifierIds: [], note: '' }))
+      expect(approvalOf(o.id)).toBe(3000)
+    })
+
+    it('setFree checks the discount token before it spends the free-item token', async () => {
+      const o = order(h.cashier, h.fx.products.tajine, h.fx.products.the)
+      ok(h.orders.setTicketDiscount(h.cashier, o.id, { kind: 'amount', cents: 820, reason: 'x' }))
+      const freeToken = ok(await h.users.authorizeOverride(PINS.amine, 'order.free_item'))
+      const wrongDiscountToken = ok(await h.users.authorizeOverride(PINS.amine, 'ticket.cancel'))
+      const r = h.orders.setFree(h.cashier, o.id, o.lines[1]!.id, true, 'Geste', freeToken, wrongDiscountToken)
+      expect(r).toMatchObject({ ok: false, error: { code: 'forbidden', params: { reason: 'override_invalid' } } })
+      // The free-item approval is still good.
+      ok(h.orders.setFree(h.cashier, o.id, o.lines[1]!.id, true, 'Geste', freeToken, ok(await overrideToken())))
+    })
+  })
 })

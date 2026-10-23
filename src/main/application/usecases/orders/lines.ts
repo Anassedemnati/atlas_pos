@@ -8,6 +8,7 @@ import { parseInput } from '../catalog/input'
 import { attemptSync, invalidInput } from '../users/outcome'
 import {
   activeLine,
+  approvalAfterGrowth,
   assertNotBelowPaid,
   checkDiscountLimit,
   discountGate,
@@ -125,6 +126,7 @@ export function createLineUseCases(ctx: Sales): LineUseCases {
       }
       ctx.orders.insertLine(tx, order.id, line)
       moveStock(tx, ctx, line, -1)
+      order.discountApprovedBp = approvalAfterGrowth([...order.lines, line], order.discount, order.discountApprovedBp)
       logOrder(tx, ctx, session, order, 'order.line_added', {
         lineId: line.id,
         productId: product.id,

@@ -12,6 +12,8 @@ export interface OverrideRegistry {
    * spend it). Only `token.id` is read: the registry trusts what it recorded, not the object it is handed.
    */
   consume(token: OverrideToken, permission: Permission): { byUserId: string; permission: Permission } | null
+  /** Whether `consume` would accept the token now, without spending it. */
+  peek(token: OverrideToken, permission: Permission): boolean
   size(): number
 }
 
@@ -50,6 +52,11 @@ export function createOverrideRegistry(clock: Clock): OverrideRegistry {
       if (entry.permission !== permission) return null
       issued.delete(token.id)
       return { byUserId: entry.byUserId, permission: entry.permission }
+    },
+
+    peek(token, permission) {
+      const entry = issued.get(token.id)
+      return entry !== undefined && entry.expiresAtMs > clock.now().getTime() && entry.permission === permission
     },
 
     size: () => issued.size

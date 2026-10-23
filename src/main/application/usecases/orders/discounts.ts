@@ -133,8 +133,8 @@ export function createDiscountUseCases(ctx: Sales): DiscountUseCases {
       const changed = { ...activeLine(order, lineId), free, freeReason: reason }
       const gate = discountGate(discountToken)
       apply(tx, session, order, { lines: replaced(order, changed), discount: order.discount, changed }, gate)
-      // Tokens are spent last: a refusal of the discount check must not burn the free-item approval.
-      assertDiscountApprovable(gate)
+      // Tokens are spent last, the discount token checked (not spent) before the free-item one is spent.
+      assertDiscountApprovable(ctx, gate)
       let freeBy: string | undefined
       if (!held && token !== undefined) {
         const used = overrides.consumeOverride(token, 'order.free_item')

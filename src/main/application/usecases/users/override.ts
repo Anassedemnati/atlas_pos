@@ -31,6 +31,11 @@ export interface OverrideUseCases {
    */
   consumeOverride(token: OverrideToken, permission: Permission): Result<{ byUserId: string; permission: Permission }>
   /**
+   * Whether `consumeOverride(token, permission)` would succeed now, without spending the token: an action
+   * that needs two approvals checks the second before it spends the first.
+   */
+  isOverrideValid(token: OverrideToken, permission: Permission): boolean
+  /**
    * May this session give a discount of `discountBp`? It needs `order.discount`, and the discount
    * must not exceed its limit (inclusive) unless `override` (for `order.discount.override`) is
    * given, which is then spent; `overriddenBy` names the approving manager and the caller must record
@@ -110,6 +115,8 @@ export function createOverrideUseCases(deps: { uow: UnitOfWork; clock: Clock; us
       })
       return { ok: true, value: registry.issue(approver.id, permission) }
     },
+
+    isOverrideValid: (token, permission) => registry.peek(token, permission),
 
     consumeOverride(token, permission) {
       const used = registry.consume(token, permission)
