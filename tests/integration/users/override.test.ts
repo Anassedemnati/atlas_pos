@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { hashSecret } from '../../../src/main/infrastructure/security/password'
 import type { OverrideToken } from '../../../src/main/domain/users/session'
 import type { Result } from '../../../src/shared/result'
+import { createUsersService } from '../../../src/main/application/usecases/users'
 import { PINS, TECHNICIAN_CODE, sessionOf, usersHarness, type UsersHarness } from '../../helpers/users'
 
 // Every login or save costs a scrypt (~100 ms); a loaded machine must not turn that into a timeout.
@@ -43,9 +44,14 @@ describe('authorizeOverride', () => {
     expect(JSON.stringify(rows)).not.toContain(PINS.amine)
   })
 
-  it('refuses a valid PIN whose profile lacks the permission as forbidden', async () => {
-    const r = await h.service.authorizeOverride(PINS.sara, 'order.discount.override')
-    expect(r).toMatchObject({ ok: false, error: { code: 'forbidden', params: { permission: 'order.discount.override' } } })
+  it('answers a valid PIN whose profile lacks the permission exactly like a wrong PIN (no oracle on whose PIN is whose)', async () => {
+    const nonManager = await h.service.authorizeOverride(PINS.sara, 'order.discount.override')
+    const unknown = await h.service.authorizeOverride('0000', 'order.discount.override')
+    expect(nonManager).toEqual({
+      ok: false,
+      error: { code: 'invalid_credentials', messageKey: 'errors.invalid_credentials' }
+    })
+    expect(nonManager).toEqual(unknown)
   })
 
   it('refuses a PIN that matches nobody as invalid_credentials, and one of the wrong shape as invalid_pin_format', async () => {
@@ -70,6 +76,7 @@ describe('authorizeOverride', () => {
     await h.service.authorizeOverride('0000', 'order.void_sent')
     await h.service.authorizeOverride(PINS.sara, 'order.void_sent')
     const rows = h.eventRows()
+    // The reason is in the log even though the answer does not give it.
     expect(rows.map((r) => [r.type, r.user_id, r.data_json])).toEqual([
       ['override.denied', null, JSON.stringify({ permission: 'order.void_sent', reason: 'bad_pin' })],
       ['override.denied', 'u-sara', JSON.stringify({ permission: 'order.void_sent', reason: 'forbidden' })]
@@ -85,8 +92,49 @@ describe('authorizeOverride', () => {
     expect((await h.service.authorizeOverride(PINS.amine, 'order.void_sent')).ok).toBe(true)
   })
 
+  it('is not affected by a back office lock: only a till lock keeps a manager from approving', async () => {
+    for (let i = 0; i < 5; i++) await h.service.loginPassword('amine', 'wrong-password', 'c1')
+    expect((await h.service.authorizeOverride(PINS.amine, 'order.void_sent')).ok).toBe(true)
+  })
+
+  it('refuses when the manager is deactivated, locked or given another PIN while the PIN is being checked', async () => {
+    const run = async (change: string, ...args: unknown[]) => {
+      const attempt = h.service.authorizeOverride(PINS.amine, 'order.void_sent')
+      h.t.db.prepare(change).run(...args)
+      return attempt
+    }
+    expect(code(await run("UPDATE users SET active = 0 WHERE id = 'u-amine'"))).toBe('invalid_credentials')
+    h.t.db.prepare("UPDATE users SET active = 1 WHERE id = 'u-amine'").run()
+    expect(
+      code(await run("UPDATE users SET pin_locked_until = '2026-10-22T10:05:00.000Z' WHERE id = 'u-amine'"))
+    ).toBe('invalid_credentials')
+    h.t.db.prepare("UPDATE users SET pin_locked_until = NULL WHERE id = 'u-amine'").run()
+    expect(code(await run('UPDATE users SET pin_hash = ? WHERE id = ?', hashSecret('7777'), 'u-amine'))).toBe(
+      'invalid_credentials'
+    )
+    expect(h.eventRows().filter((e) => e.type === 'override.granted')).toHaveLength(0)
+  })
+
+  it('refuses when the profile loses the permission while the PIN is being checked', async () => {
+    const attempt = h.service.authorizeOverride(PINS.amine, 'order.void_sent')
+    h.t.db.prepare("UPDATE profiles SET permissions_json = '[\"order.discount\"]' WHERE id = 'p-gerant'").run()
+    expect(code(await attempt)).toBe('invalid_credentials')
+  })
+
+  it('cannot be out-run by a burst of parallel guesses: 5 refusals count, the rest find the prompt locked', async () => {
+    const results = await Promise.all(Array.from({ length: 9 }, () => h.service.authorizeOverride('0000', 'order.void_sent')))
+    expect(results.filter((r) => code(r) === 'invalid_credentials')).toHaveLength(4)
+    expect(results.filter((r) => code(r) === 'locked')).toHaveLength(5)
+    const rows = h.eventRows()
+    expect(rows.filter((e) => e.type === 'override.denied')).toHaveLength(5)
+    expect(rows.filter((e) => e.type === 'override.locked')).toHaveLength(1)
+  })
+
   it('counts a valid PIN that lacks the permission among the refusals', async () => {
-    for (let i = 0; i < 5; i++) await h.service.authorizeOverride(PINS.sara, 'order.void_sent')
+    for (let i = 0; i < 4; i++) {
+      expect(code(await h.service.authorizeOverride(PINS.sara, 'order.void_sent'))).toBe('invalid_credentials')
+    }
+    expect(code(await h.service.authorizeOverride(PINS.sara, 'order.void_sent'))).toBe('locked')
     expect(code(await h.service.authorizeOverride(PINS.amine, 'order.void_sent'))).toBe('locked')
   })
 
@@ -177,9 +225,12 @@ describe('consumeOverride', () => {
   })
   afterEach(() => h.cleanup())
 
-  it('spends a token once and returns the approver', async () => {
+  it('spends a token once and returns the approver and the permission, for the consuming use case to log', async () => {
     const token = tokenOf(await h.service.authorizeOverride(PINS.amine, 'order.void_sent'))
-    expect(h.service.consumeOverride(token, 'order.void_sent')).toEqual({ ok: true, value: { byUserId: 'u-amine' } })
+    expect(h.service.consumeOverride(token, 'order.void_sent')).toEqual({
+      ok: true,
+      value: { byUserId: 'u-amine', permission: 'order.void_sent' }
+    })
     expect(h.service.consumeOverride(token, 'order.void_sent')).toMatchObject({
       ok: false,
       error: { code: 'forbidden', params: { permission: 'order.void_sent', reason: 'override_invalid' } }
@@ -197,33 +248,99 @@ describe('verifyTechnician', () => {
   const setCode = (): void => {
     h.uow.run((tx) => h.settings.set(tx, 'tech.codeHash', hashSecret(TECHNICIAN_CODE)))
   }
+  const technicianEvents = () => h.eventRows().filter((e) => e.type.startsWith('technician.'))
 
-  it('is false while no technician code has been set', async () => {
-    expect(await h.service.verifyTechnician(TECHNICIAN_CODE)).toBe(false)
+  it('accepts the technician code with { ok: true, value: true }', async () => {
+    setCode()
+    expect(await h.service.verifyTechnician(TECHNICIAN_CODE)).toEqual({ ok: true, value: true })
   })
 
-  it('accepts the technician code and refuses anything else', async () => {
+  it('refuses a wrong code, an empty one and an over-long one as invalid_credentials', async () => {
     setCode()
-    expect(await h.service.verifyTechnician(TECHNICIAN_CODE)).toBe(true)
-    expect(await h.service.verifyTechnician('000000')).toBe(false)
-    expect(await h.service.verifyTechnician('')).toBe(false)
+    for (const wrong of ['000000', '', 'x'.repeat(300)]) {
+      expect(code(await h.service.verifyTechnician(wrong)), wrong.slice(0, 8)).toBe('invalid_credentials')
+    }
+  })
+
+  it('refuses while no technician code has been set', async () => {
+    expect(code(await h.service.verifyTechnician(TECHNICIAN_CODE))).toBe('invalid_credentials')
   })
 
   it('is not a user PIN: a manager PIN does not open the technician menu', async () => {
     setCode()
-    expect(await h.service.verifyTechnician(PINS.amine)).toBe(false)
+    expect(code(await h.service.verifyTechnician(PINS.amine))).toBe('invalid_credentials')
   })
 
-  it('logs each check without the code', async () => {
+  it('locks for 5 minutes after 5 failures, even for the right code, then opens again', async () => {
+    setCode()
+    for (let i = 0; i < 4; i++) expect(code(await h.service.verifyTechnician('000000'))).toBe('invalid_credentials')
+    const fifth = await h.service.verifyTechnician('000000')
+    expect(fifth).toMatchObject({ ok: false, error: { code: 'locked', params: { until: '2026-10-22T10:05:00.000Z' } } })
+    expect(await h.service.verifyTechnician(TECHNICIAN_CODE)).toMatchObject({
+      ok: false,
+      error: { code: 'locked', params: { until: '2026-10-22T10:05:00.000Z' } }
+    })
+    h.clock.advance(4 * 60_000)
+    expect(code(await h.service.verifyTechnician(TECHNICIAN_CODE))).toBe('locked')
+    h.clock.advance(60_000)
+    expect(await h.service.verifyTechnician(TECHNICIAN_CODE)).toEqual({ ok: true, value: true })
+  })
+
+  it('forgets earlier failures after a success', async () => {
+    setCode()
+    for (let i = 0; i < 4; i++) await h.service.verifyTechnician('000000')
+    expect((await h.service.verifyTechnician(TECHNICIAN_CODE)).ok).toBe(true)
+    for (let i = 0; i < 4; i++) expect(code(await h.service.verifyTechnician('000000'))).toBe('invalid_credentials')
+  })
+
+  it('cannot be out-run by a burst of parallel guesses', async () => {
+    setCode()
+    const results = await Promise.all(Array.from({ length: 9 }, () => h.service.verifyTechnician('000000')))
+    expect(results.filter((r) => code(r) === 'invalid_credentials')).toHaveLength(4)
+    expect(results.filter((r) => code(r) === 'locked')).toHaveLength(5)
+    expect(technicianEvents().filter((e) => e.type === 'technician.locked')).toHaveLength(1)
+  })
+
+  it('logs each check without the code, and a lock once', async () => {
     setCode()
     await h.service.verifyTechnician('000000')
     await h.service.verifyTechnician(TECHNICIAN_CODE)
-    const rows = h.eventRows().filter((e) => e.type.startsWith('technician.'))
-    expect(rows.map((r) => [r.type, r.entity])).toEqual([
+    expect(technicianEvents().map((r) => [r.type, r.entity])).toEqual([
       ['technician.failed', 'technician'],
       ['technician.verified', 'technician']
     ])
     expect(JSON.stringify(h.eventRows())).not.toContain(TECHNICIAN_CODE)
     expect(JSON.stringify(h.eventRows())).not.toContain('000000')
+  })
+
+  it('says technician_unavailable when the stored hash does not read back, without counting it as a guess', async () => {
+    h.t.db.prepare("INSERT INTO settings (key, value_json, updated_at) VALUES ('tech.codeHash', '\"\"', 'now')").run()
+    for (let i = 0; i < 7; i++) {
+      expect(await h.service.verifyTechnician(TECHNICIAN_CODE)).toEqual({
+        ok: false,
+        error: { code: 'technician_unavailable', messageKey: 'errors.technician_unavailable' }
+      })
+    }
+    const types = technicianEvents().map((e) => e.type)
+    expect(types).toEqual(Array(7).fill('technician.unavailable'))
+    // Repaired: the right code opens at once, there is no lock to wait out.
+    setCode()
+    expect((await h.service.verifyTechnician(TECHNICIAN_CODE)).ok).toBe(true)
+  })
+
+  it('does not hide any other error as a wrong code', async () => {
+    const broken = createUsersService({
+      db: h.t.db,
+      uow: h.uow,
+      clock: h.clock,
+      settings: {
+        ...h.settings,
+        get: () => {
+          throw new Error('disk I/O error')
+        }
+      }
+    })
+    await expect(broken.verifyTechnician(TECHNICIAN_CODE)).rejects.toThrow('disk I/O error')
+    expect(technicianEvents()).toEqual([])
   })
 })

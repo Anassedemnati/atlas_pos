@@ -38,3 +38,7 @@ export const hasPermission = (session: Session, permission: Permission): boolean
 export function requirePermission(session: Session, permission: Permission): void {
   if (!hasPermission(session, permission)) throw new AppErrorException('forbidden', { permission })
 }
+
+/** True when the session holds every one of `permissions` (an empty list is trivially held). */
+export const holdsAll = (session: Session, permissions: readonly Permission[]): boolean =>
+  permissions.every((permission) => session.permissions.has(permission))

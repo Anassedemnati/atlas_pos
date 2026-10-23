@@ -19,13 +19,14 @@ describe('normalizeUsername', () => {
   })
 
   it('returns null for a name that is not a valid username', () => {
-    for (const name of ['', '  ', 'ab', 'has space', 'a'.repeat(51), 'é-accent', 'semi;colon']) {
+    for (const name of ['', '  ', 'ab', 'has space', 'a'.repeat(65), ' '.repeat(200) + 'amine', 'é-accent', 'semi;colon']) {
       expect(normalizeUsername(name), name).toBeNull()
     }
   })
 
-  it('allows letters, digits and . _ - @', () => {
+  it('allows letters, digits and . _ - @, up to 64 characters', () => {
     expect(normalizeUsername('amine_b-2@atlas.ma')).toBe('amine_b-2@atlas.ma')
+    expect(normalizeUsername('a'.repeat(64))).toBe('a'.repeat(64))
   })
 })
 

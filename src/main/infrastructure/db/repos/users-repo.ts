@@ -4,6 +4,15 @@ import { isManagerPermissions, parsePermissions } from '../../../domain/users/pr
 import type { Database } from '../connection'
 import type { Tx } from '../uow'
 
+/** The two ways in. Each has its own failure counter and lock, so a lock on one never stops the other. */
+export type LoginDoor = 'pin' | 'password'
+
+export interface DoorLock {
+  failedLogins: number
+  /** ISO instant while a lock may be running; null when there is none. */
+  lockedUntil: string | null
+}
+
 export interface UserRecord {
   id: string
   displayName: string
@@ -14,9 +23,8 @@ export interface UserRecord {
   profileId: string
   lang: Lang
   active: boolean
-  failedLogins: number
-  /** ISO instant while a lock may be running; null when there is none. */
-  lockedUntil: string | null
+  /** `pin` is the till (`pin_failed_logins`, `pin_locked_until`), `password` the back office (`failed_logins`, `locked_until`). */
+  locks: Record<LoginDoor, DoorLock>
   createdAt: string
 }
 
@@ -38,6 +46,8 @@ interface UserRow {
   active: number
   failed_logins: number
   locked_until: string | null
+  pin_failed_logins: number
+  pin_locked_until: string | null
   created_at: string
 }
 
@@ -57,8 +67,10 @@ const toUser = (row: UserRow): UserRecord => ({
   profileId: row.profile_id,
   lang: row.lang === 'ar' || row.lang === 'en' ? row.lang : 'fr',
   active: row.active === 1,
-  failedLogins: row.failed_logins,
-  lockedUntil: row.locked_until,
+  locks: {
+    pin: { failedLogins: row.pin_failed_logins, lockedUntil: row.pin_locked_until },
+    password: { failedLogins: row.failed_logins, lockedUntil: row.locked_until }
+  },
   createdAt: row.created_at
 })
 
@@ -77,8 +89,13 @@ const toProfile = (row: ProfileRow): ProfileRecord => {
   }
 }
 
-/** The columns an edit owns. The failure counters belong to the login paths and are never written from here. */
-export type UserEdit = Omit<UserRecord, 'failedLogins' | 'lockedUntil' | 'createdAt'>
+/** The columns an edit owns. The failure counters belong to the login paths: an edit only ever clears them (`clearFailures`). */
+export type UserEdit = Omit<UserRecord, 'locks' | 'createdAt'>
+
+const DOOR_COLUMNS = {
+  pin: { failed: 'pin_failed_logins', until: 'pin_locked_until' },
+  password: { failed: 'failed_logins', until: 'locked_until' }
+} as const satisfies Record<LoginDoor, { failed: string; until: string }>
 
 export interface UsersRepo {
   getUser(id: string): UserRecord | undefined
@@ -95,11 +112,12 @@ export interface UsersRepo {
   insertProfile(tx: Tx, profile: ProfileRecord): void
   updateProfile(tx: Tx, profile: ProfileRecord): void
 
-  /** Counts one more failure in SQL (never a value read earlier) and returns the new count. */
-  recordFailure(tx: Tx, userId: string): number
-  /** Starts a lock and restarts the count, so that the next 5 tries are fresh once it ends. */
-  lock(tx: Tx, userId: string, until: string): void
-  clearFailures(tx: Tx, userId: string): void
+  /** Counts one more failure of this door in SQL (never a value read earlier) and returns the new count. */
+  recordFailure(tx: Tx, userId: string, door: LoginDoor): number
+  /** Starts a lock on this door and restarts its count, so that the next 5 tries are fresh once it ends. */
+  lock(tx: Tx, userId: string, door: LoginDoor, until: string): void
+  /** Forgets the failures and the lock of this door only. */
+  clearFailures(tx: Tx, userId: string, door: LoginDoor): void
 }
 
 export function createUsersRepo(db: Database): UsersRepo {
@@ -171,20 +189,21 @@ export function createUsersRepo(db: Database): UsersRepo {
         .run(JSON.stringify(p.name), JSON.stringify(p.permissions), p.maxDiscountBp, p.id)
     },
 
-    recordFailure(tx, userId) {
-      tx.db.prepare('UPDATE users SET failed_logins = failed_logins + 1 WHERE id = ?').run(userId)
-      const row = tx.db.prepare('SELECT failed_logins FROM users WHERE id = ?').get(userId) as
-        | { failed_logins: number }
-        | undefined
-      return row?.failed_logins ?? 0
+    recordFailure(tx, userId, door) {
+      const { failed } = DOOR_COLUMNS[door]
+      tx.db.prepare(`UPDATE users SET ${failed} = ${failed} + 1 WHERE id = ?`).run(userId)
+      const row = tx.db.prepare(`SELECT ${failed} AS n FROM users WHERE id = ?`).get(userId) as { n: number } | undefined
+      return row?.n ?? 0
     },
 
-    lock(tx, userId, until) {
-      tx.db.prepare('UPDATE users SET failed_logins = 0, locked_until = ? WHERE id = ?').run(until, userId)
+    lock(tx, userId, door, until) {
+      const { failed, until: untilColumn } = DOOR_COLUMNS[door]
+      tx.db.prepare(`UPDATE users SET ${failed} = 0, ${untilColumn} = ? WHERE id = ?`).run(until, userId)
     },
 
-    clearFailures(tx, userId) {
-      tx.db.prepare('UPDATE users SET failed_logins = 0, locked_until = NULL WHERE id = ?').run(userId)
+    clearFailures(tx, userId, door) {
+      const { failed, until } = DOOR_COLUMNS[door]
+      tx.db.prepare(`UPDATE users SET ${failed} = 0, ${until} = NULL WHERE id = ?`).run(userId)
     }
   }
 }

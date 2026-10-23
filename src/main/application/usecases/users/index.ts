@@ -22,7 +22,8 @@ export type UsersService = LoginUseCases & ManageUseCases & OverrideUseCases & T
 
 /**
  * Users, profiles, till PIN and back office password login, manager override, technician code.
- * One instance per process: it holds the in-memory state (override tokens, blocked clients).
+ * One instance per process: it holds the in-memory state (override tokens, blocked clients, the
+ * override-prompt and technician-code lockouts).
  */
 export function createUsersService({ db, uow, clock, settings }: UsersDeps): UsersService {
   const users = createUsersRepo(db)
@@ -30,6 +31,6 @@ export function createUsersService({ db, uow, clock, settings }: UsersDeps): Use
     ...createLoginUseCases({ uow, clock, users }),
     ...createManageUseCases({ uow, users }),
     ...createOverrideUseCases({ uow, clock, users }),
-    ...createTechnicianUseCases({ uow, settings })
+    ...createTechnicianUseCases({ uow, clock, settings })
   }
 }

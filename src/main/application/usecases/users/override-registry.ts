@@ -7,11 +7,11 @@ import type { Clock } from '../../ports'
 export interface OverrideRegistry {
   issue(byUserId: string, permission: Permission): OverrideToken
   /**
-   * Spends the token: `{ byUserId }` of the manager who approved, or null when it is unknown,
-   * already used, expired, or was issued for another permission (that refusal does not spend it).
-   * Only `token.id` is read: the registry trusts what it recorded, not the object it is handed.
+   * Spends the token: the manager who approved and the permission approved, or null when it is
+   * unknown, already used, expired, or was issued for another permission (that refusal does not
+   * spend it). Only `token.id` is read: the registry trusts what it recorded, not the object it is handed.
    */
-  consume(token: OverrideToken, permission: Permission): { byUserId: string } | null
+  consume(token: OverrideToken, permission: Permission): { byUserId: string; permission: Permission } | null
   size(): number
 }
 
@@ -49,7 +49,7 @@ export function createOverrideRegistry(clock: Clock): OverrideRegistry {
       }
       if (entry.permission !== permission) return null
       issued.delete(token.id)
-      return { byUserId: entry.byUserId }
+      return { byUserId: entry.byUserId, permission: entry.permission }
     },
 
     size: () => issued.size

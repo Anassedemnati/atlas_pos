@@ -22,8 +22,11 @@ describe('till PIN login', () => {
   })
   afterEach(() => h.cleanup())
 
+  // The till door keeps its own counter and lock in the pin_* columns.
   const row = (id: string): UserRow =>
-    h.t.db.prepare('SELECT failed_logins, locked_until FROM users WHERE id = ?').get(id) as UserRow
+    h.t.db
+      .prepare('SELECT pin_failed_logins AS failed_logins, pin_locked_until AS locked_until FROM users WHERE id = ?')
+      .get(id) as UserRow
 
   it('lists the active users for the PIN tiles, in creation order, with initials and no secret', () => {
     h.t.db.prepare("UPDATE users SET active = 0 WHERE id = 'u-youssef'").run()
@@ -83,6 +86,10 @@ describe('till PIN login', () => {
     const correct = await h.service.loginPin('u-sara', PINS.sara)
     expect(correct).toMatchObject({ ok: false, error: { code: 'locked', params: { until: '2026-10-22T10:01:00.000Z' } } })
     expect(row('u-sara').locked_until).toBe('2026-10-22T10:01:00.000Z')
+    // The back office door of the same user is untouched.
+    expect(
+      h.t.db.prepare("SELECT failed_logins, locked_until FROM users WHERE id = 'u-sara'").get()
+    ).toEqual({ failed_logins: 0, locked_until: null })
   })
 
   it('keeps the lock across an application restart (it lives in the database)', async () => {
@@ -118,6 +125,21 @@ describe('till PIN login', () => {
     await h.service.loginPin('u-sara', '0000')
     expect(row('u-sara').failed_logins).toBe(0)
     expect(h.eventRows()).toHaveLength(before)
+  })
+
+  it('refuses when the PIN is changed while it is being checked: the answer was about a secret that is gone', async () => {
+    // The call runs up to its first await (the hash) before this line continues: the edit lands in between.
+    const attempt = h.service.loginPin('u-sara', PINS.sara)
+    h.t.db.prepare("UPDATE users SET pin_hash = ? WHERE id = 'u-sara'").run(hashSecret('7777'))
+    expect(code(await attempt)).toBe('invalid_credentials')
+    expect(row('u-sara').failed_logins).toBe(0)
+    expect((await h.service.loginPin('u-sara', '7777')).ok).toBe(true)
+  })
+
+  it('refuses when the user is deactivated while the PIN is being checked', async () => {
+    const attempt = h.service.loginPin('u-sara', PINS.sara)
+    h.t.db.prepare("UPDATE users SET active = 0 WHERE id = 'u-sara'").run()
+    expect(code(await attempt)).toBe('invalid_credentials')
   })
 
   it('locks other users independently', async () => {
@@ -218,10 +240,58 @@ describe('back office password login', () => {
     expect(row('u-amine')).toEqual({ failed_logins: 0, locked_until: null })
   })
 
-  it('shares the failure count with the till PIN (one counter per user)', async () => {
+  it('keeps a separate counter and lock per door: a web lock does not block the till PIN, and vice versa', async () => {
+    for (let i = 0; i < 5; i++) await h.service.loginPassword(AMINE_USERNAME, 'wrong', 'c1')
+    expect(row('u-amine').locked_until).toBe('2026-10-22T10:15:00.000Z')
+    // Locked on the web, still welcome at the till, and the till does not carry the web failures.
+    expect((await h.service.loginPin('u-amine', PINS.amine)).ok).toBe(true)
+
+    h.t.db.prepare("UPDATE users SET failed_logins = 0, locked_until = NULL WHERE id = 'u-amine'").run()
+    for (let i = 0; i < 5; i++) await h.service.loginPin('u-amine', '0000')
+    expect(code(await h.service.loginPin('u-amine', PINS.amine))).toBe('locked')
+    expect((await h.service.loginPassword(AMINE_USERNAME, AMINE_PASSWORD, 'c1')).ok).toBe(true)
+  })
+
+  it('does not add the failures of the two doors together', async () => {
     for (let i = 0; i < 3; i++) await h.service.loginPin('u-amine', '0000')
-    await h.service.loginPassword(AMINE_USERNAME, 'wrong', 'c1')
-    expect(code(await h.service.loginPassword(AMINE_USERNAME, 'wrong', 'c1'))).toBe('locked')
+    for (let i = 0; i < 4; i++) await h.service.loginPassword(AMINE_USERNAME, 'wrong', 'c1')
+    expect(row('u-amine')).toEqual({ failed_logins: 4, locked_until: null })
+    expect(
+      h.t.db.prepare("SELECT pin_failed_logins, pin_locked_until FROM users WHERE id = 'u-amine'").get()
+    ).toEqual({ pin_failed_logins: 3, pin_locked_until: null })
+    // A success on one door clears that door only.
+    expect((await h.service.loginPin('u-amine', PINS.amine)).ok).toBe(true)
+    expect(row('u-amine').failed_logins).toBe(4)
+  })
+
+  it('refuses when the password is changed or removed while it is being checked', async () => {
+    const changed = h.service.loginPassword(AMINE_USERNAME, AMINE_PASSWORD, 'c1')
+    h.t.db.prepare("UPDATE users SET password_hash = ? WHERE id = 'u-amine'").run(hashSecret('Another-Password-7'))
+    expect(code(await changed)).toBe('invalid_credentials')
+    expect(row('u-amine').failed_logins).toBe(0)
+
+    const removed = h.service.loginPassword(AMINE_USERNAME, 'Another-Password-7', 'c1')
+    h.t.db.prepare("UPDATE users SET username = NULL, password_hash = NULL WHERE id = 'u-amine'").run()
+    expect(code(await removed)).toBe('invalid_credentials')
+  })
+
+  it('answers an over-long username or password like an unknown user, without hashing it', async () => {
+    expect(code(await h.service.loginPassword('a'.repeat(65), 'whatever1', 'c1'))).toBe('invalid_credentials')
+    expect(code(await h.service.loginPassword(AMINE_USERNAME, 'p'.repeat(257), 'c1'))).toBe('invalid_credentials')
+    // Counted against the client, not against the user it named.
+    expect(row('u-amine').failed_logins).toBe(0)
+    const failures = h.eventRows().filter((e) => e.type === 'user.login_failed')
+    expect(failures.map((e) => JSON.parse(e.data_json!).reason)).toEqual(['unknown_user', 'unknown_user'])
+    expect(JSON.stringify(h.eventRows())).not.toContain('pppppppppp')
+  })
+
+  it('cuts a very long clientKey, in the limiter and in the log', async () => {
+    const long = 'x'.repeat(5000)
+    for (let i = 0; i < 4; i++) await h.service.loginPassword(`ghost${i}`, 'whatever1', long + i)
+    // The tails differ, the first 128 characters do not: it is one client.
+    expect(code(await h.service.loginPassword('ghost4', 'whatever1', `${long}z`))).toBe('locked')
+    const logged = h.eventRows().map((e) => (e.data_json ? JSON.parse(e.data_json).clientKey : undefined))
+    for (const key of logged.filter((k) => k !== undefined)) expect(key).toHaveLength(128)
   })
 
   it('refuses a correct password without backoffice.login as forbidden, and does not count it as a failure', async () => {

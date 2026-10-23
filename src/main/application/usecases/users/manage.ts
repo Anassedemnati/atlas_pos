@@ -8,7 +8,7 @@ import {
   normalizeUsername
 } from '../../../domain/users/credentials'
 import { ProfileInputSchema, type ProfileInput } from '../../../domain/users/profile'
-import { requirePermission, type Session } from '../../../domain/users/session'
+import { holdsAll, requirePermission, type Session } from '../../../domain/users/session'
 import { appendEvent } from '../../../infrastructure/db/event-log'
 import type { UserEdit, UsersRepo } from '../../../infrastructure/db/repos/users-repo'
 import type { Tx, UnitOfWork } from '../../../infrastructure/db/uow'
@@ -42,10 +42,17 @@ export interface ManageUseCases {
    * every other user's, deactivated ones included (a deactivated user keeps their PIN reserved, so
    * that reactivating them can never create a duplicate). There is always at least one active user
    * whose profile holds every permission: a save that would leave none is refused with `last_manager`
-   * and changes nothing.
+   * and changes nothing. A session can only hand out what it holds: the target profile, and the
+   * profile the edited user has now, must hold nothing the session lacks (`forbidden`,
+   * `params.reason = 'privilege_escalation'`), so a sub-manager can neither create a Gérant nor
+   * reset a Gérant's PIN or password.
    */
   saveUser(session: Session, input: SaveUserInput): Promise<Result<{ id: string }>>
-  /** Creates or edits a permission profile. Needs `users.manage`; `last_manager` applies as for users. */
+  /**
+   * Creates or edits a permission profile. Needs `users.manage`; `last_manager` applies as for users.
+   * The same privilege boundary: the new permissions, and those of the profile being edited, must all
+   * be held by the session.
+   */
   saveProfile(session: Session, input: ProfileInput): Result<{ id: string }>
 }
 
@@ -66,6 +73,8 @@ export function createManageUseCases(deps: { uow: UnitOfWork; users: UsersRepo }
     return next
   }
 
+  const escalation = (): AppErrorException => new AppErrorException('forbidden', { reason: 'privilege_escalation' })
+
   const assertManagerRemains = (): void => {
     if (users.countActiveManagers() === 0) throw new AppErrorException('last_manager')
   }
@@ -78,7 +87,11 @@ export function createManageUseCases(deps: { uow: UnitOfWork; users: UsersRepo }
 
     const existing = input.id === undefined ? undefined : users.getUser(input.id)
     if (input.id !== undefined && !existing) throw invalidInput('id', 'unknown user')
-    if (!users.getProfile(input.profileId)) throw invalidInput('profileId', 'unknown profile')
+    const target = users.getProfile(input.profileId)
+    if (!target) throw invalidInput('profileId', 'unknown profile')
+    // Before any PIN check: a refused session must not learn anything about other users' PINs.
+    if (!holdsAll(session, target.permissions)) throw escalation()
+    if (existing && !holdsAll(session, users.getProfile(existing.profileId)?.permissions ?? [])) throw escalation()
 
     // Username and password: a username without a password cannot log in, a password without a username is never asked for.
     let username = existing?.username ?? null
@@ -123,8 +136,9 @@ export function createManageUseCases(deps: { uow: UnitOfWork; users: UsersRepo }
       if (owner && owner.id !== edit.id) throw new AppErrorException('username_taken')
       if (existing) users.updateUser(tx, edit)
       else users.insertUser(tx, edit)
-      // A new PIN or password is a fresh start: it lifts a lock the user may be under.
-      if (existing && (pinChanged || passwordChanged)) users.clearFailures(tx, edit.id)
+      // A new PIN or password is a fresh start for its own door: it lifts the lock the user may be under there.
+      if (existing && pinChanged) users.clearFailures(tx, edit.id, 'pin')
+      if (existing && passwordChanged) users.clearFailures(tx, edit.id, 'password')
       // Counted after the change, so one check covers deactivating, moving to another profile, anything.
       assertManagerRemains()
       appendEvent(
@@ -147,7 +161,11 @@ export function createManageUseCases(deps: { uow: UnitOfWork; users: UsersRepo }
     const parsed = ProfileInputSchema.safeParse(raw)
     if (!parsed.success) throw firstIssue(parsed.error)
     const input = parsed.data
-    if (input.id !== undefined && !users.getProfile(input.id)) throw invalidInput('id', 'unknown profile')
+    const existing = input.id === undefined ? undefined : users.getProfile(input.id)
+    if (input.id !== undefined && !existing) throw invalidInput('id', 'unknown profile')
+    if (!holdsAll(session, input.permissions) || (existing && !holdsAll(session, existing.permissions))) {
+      throw escalation()
+    }
 
     const profile = {
       id: input.id ?? newId(),

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { AppErrorException } from '../../../src/main/application/errors'
-import { hasPermission, requirePermission } from '../../../src/main/domain/users/session'
+import { hasPermission, holdsAll, requirePermission } from '../../../src/main/domain/users/session'
 import { CASHIER_PERMISSIONS, sessionOf } from '../../helpers/users'
 
 describe('hasPermission / requirePermission', () => {
@@ -9,6 +9,12 @@ describe('hasPermission / requirePermission', () => {
   it('hasPermission reports whether the session holds the permission', () => {
     expect(hasPermission(cashier, 'order.discount')).toBe(true)
     expect(hasPermission(cashier, 'users.manage')).toBe(false)
+  })
+
+  it('holdsAll is true only when every listed permission is held (an empty list is held)', () => {
+    expect(holdsAll(cashier, ['order.discount', 'report.x'])).toBe(true)
+    expect(holdsAll(cashier, ['order.discount', 'users.manage'])).toBe(false)
+    expect(holdsAll(cashier, [])).toBe(true)
   })
 
   it('requirePermission passes silently when the permission is held', () => {

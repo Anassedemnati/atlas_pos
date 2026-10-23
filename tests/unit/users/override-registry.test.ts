@@ -22,7 +22,10 @@ describe('override registry', () => {
   it('is good for one use only', () => {
     const { registry } = setup()
     const token = registry.issue('u-amine', 'order.discount.override')
-    expect(registry.consume(token, 'order.discount.override')).toEqual({ byUserId: 'u-amine' })
+    expect(registry.consume(token, 'order.discount.override')).toEqual({
+      byUserId: 'u-amine',
+      permission: 'order.discount.override'
+    })
     expect(registry.consume(token, 'order.discount.override')).toBeNull()
   })
 
@@ -37,14 +40,14 @@ describe('override registry', () => {
     const { clock, registry } = setup()
     const token = registry.issue('u-amine', 'order.discount.override')
     clock.advance(59_999)
-    expect(registry.consume(token, 'order.discount.override')).toEqual({ byUserId: 'u-amine' })
+    expect(registry.consume(token, 'order.discount.override')).toMatchObject({ byUserId: 'u-amine' })
   })
 
   it('approves the permission it was issued for, and a refused use does not burn it', () => {
     const { registry } = setup()
     const token = registry.issue('u-amine', 'order.void_sent')
     expect(registry.consume(token, 'order.discount.override')).toBeNull()
-    expect(registry.consume(token, 'order.void_sent')).toEqual({ byUserId: 'u-amine' })
+    expect(registry.consume(token, 'order.void_sent')).toEqual({ byUserId: 'u-amine', permission: 'order.void_sent' })
   })
 
   it('trusts its own record, not the object it is handed back', () => {
@@ -53,7 +56,7 @@ describe('override registry', () => {
     const forged = { ...token, byUserId: 'u-amine', permission: 'order.discount.override' as const }
     expect(registry.consume(forged, 'order.discount.override')).toBeNull()
     const relabelled = { ...token, byUserId: 'u-amine' }
-    expect(registry.consume(relabelled, 'order.void_sent')).toEqual({ byUserId: 'u-sara' })
+    expect(registry.consume(relabelled, 'order.void_sent')).toEqual({ byUserId: 'u-sara', permission: 'order.void_sent' })
   })
 
   it('refuses a token it never issued', () => {

@@ -1,10 +1,17 @@
 import type { Permission } from '@shared/permissions'
 import type { Result } from '@shared/result'
-import { initialsOf, isValidPin, normalizeUsername } from '../../../domain/users/credentials'
+import {
+  MAX_CLIENT_KEY_LENGTH,
+  MAX_PASSWORD_LENGTH,
+  MAX_USERNAME_LENGTH,
+  initialsOf,
+  isValidPin,
+  normalizeUsername
+} from '../../../domain/users/credentials'
 import { MAX_FAILED_LOGINS, PASSWORD_LOCK_MS, PIN_LOCK_MS, isLocked } from '../../../domain/users/lockout'
 import { hasPermission, type Session } from '../../../domain/users/session'
 import { appendEvent } from '../../../infrastructure/db/event-log'
-import type { UserRecord, UsersRepo } from '../../../infrastructure/db/repos/users-repo'
+import type { LoginDoor, UserRecord, UsersRepo } from '../../../infrastructure/db/repos/users-repo'
 import type { UnitOfWork } from '../../../infrastructure/db/uow'
 import { verifyAgainstDecoy, verifySecretAsync } from '../../../infrastructure/security/password'
 import type { Clock } from '../../ports'
@@ -21,20 +28,23 @@ export interface LoginUseCases {
   /** The active users, for the PIN tiles, in creation order. No secret leaves the main process. */
   listTillUsers(): TillUser[]
   /**
-   * 4 to 6 digits. The 5th failure locks the user for 60 s; the lock is stored, so it survives a
-   * restart. The count is shared with `loginPassword`: one counter per user, and a lock stops both doors.
+   * 4 to 6 digits. The 5th failure locks the till door of that user for 60 s; the lock is stored
+   * (`users.pin_locked_until`), so it survives a restart. It has its own counter: a lock on the back
+   * office door (`loginPassword`) does not stop the till, and the other way round.
    */
   loginPin(userId: string, pin: string): Promise<Result<Session>>
   /**
-   * Needs `backoffice.login`. The 5th failure locks the user for 15 min. `clientKey` identifies the
-   * browser (its IP): it goes to the audit log, and a client that types 5 unknown usernames is blocked
-   * for 15 min (there is no user row to lock).
+   * Needs `backoffice.login`. The 5th failure locks the back office door of that user for 15 min
+   * (`users.failed_logins` / `locked_until`). `clientKey` identifies the browser (its IP; cut at 128
+   * characters): it goes to the audit log, and a client that types 5 unknown usernames is blocked for
+   * 15 min (there is no user row to lock). A username over 64 characters or a password over 256 is
+   * answered like an unknown user, without being hashed.
    */
   loginPassword(username: string, password: string, clientKey: string): Promise<Result<Session>>
 }
 
 interface Door {
-  channel: 'pin' | 'password'
+  channel: LoginDoor
   lockMs: number
   /** Data added to every event of this attempt (the client of a back office login). */
   extra: Record<string, unknown>
@@ -106,15 +116,20 @@ export function createLoginUseCases(deps: { uow: UnitOfWork; clock: Clock; users
    * never thrown, from inside the transaction, so the failure count and the audit row are kept.
    */
   async function authenticate(user: UserRecord, secret: string, hash: string, door: Door): Promise<Result<Session>> {
-    if (isLocked(user.lockedUntil, clock.now())) return locked(user.lockedUntil!)
+    const lockedUntil = user.locks[door.channel].lockedUntil
+    if (isLocked(lockedUntil, clock.now())) return locked(lockedUntil!)
     const secretIsRight = await verifySecretAsync(secret, hash)
 
     return uow.run((tx): Result<Session> => {
       const fresh = users.getUser(user.id)
       if (!fresh || !fresh.active) return refuse('invalid_credentials')
+      // The secret was checked against `hash`. If an edit replaced it while the hash was running, that
+      // answer is about a secret that no longer exists: refuse, count nothing.
+      if ((door.channel === 'pin' ? fresh.pinHash : fresh.passwordHash) !== hash) return refuse('invalid_credentials')
       const now = tx.clock.now()
+      const lock = fresh.locks[door.channel]
       // Locked meanwhile: no count, no event (an append-only log must not grow with every attempt of a hammering client).
-      if (isLocked(fresh.lockedUntil, now)) return locked(fresh.lockedUntil!)
+      if (isLocked(lock.lockedUntil, now)) return locked(lock.lockedUntil!)
 
       if (!secretIsRight) {
         appendEvent(
@@ -128,9 +143,9 @@ export function createLoginUseCases(deps: { uow: UnitOfWork; clock: Clock; users
           },
           tx.clock
         )
-        if (users.recordFailure(tx, fresh.id) < MAX_FAILED_LOGINS) return refuse('invalid_credentials')
+        if (users.recordFailure(tx, fresh.id, door.channel) < MAX_FAILED_LOGINS) return refuse('invalid_credentials')
         const until = new Date(now.getTime() + door.lockMs).toISOString()
-        users.lock(tx, fresh.id, until)
+        users.lock(tx, fresh.id, door.channel, until)
         appendEvent(
           tx.db,
           { type: 'user.locked', entity: 'user', entityId: fresh.id, userId: fresh.id, data: { channel: door.channel, until } },
@@ -155,7 +170,7 @@ export function createLoginUseCases(deps: { uow: UnitOfWork; clock: Clock; users
         )
         return refuse('forbidden', { permission: door.requires })
       }
-      if (fresh.failedLogins > 0 || fresh.lockedUntil !== null) users.clearFailures(tx, fresh.id)
+      if (lock.failedLogins > 0 || lock.lockedUntil !== null) users.clearFailures(tx, fresh.id, door.channel)
       appendEvent(
         tx.db,
         { type: 'user.login', entity: 'user', entityId: fresh.id, userId: fresh.id, data: { channel: door.channel, ...door.extra } },
@@ -182,7 +197,8 @@ export function createLoginUseCases(deps: { uow: UnitOfWork; clock: Clock; users
       return authenticate(user, pin, user.pinHash, door)
     },
 
-    async loginPassword(username, password, clientKey) {
+    async loginPassword(username, password, rawClientKey) {
+      const clientKey = rawClientKey.slice(0, MAX_CLIENT_KEY_LENGTH)
       const blocked = clientLimiter.lockedUntil(clientKey)
       if (blocked) return locked(blocked)
       const door: Door = {
@@ -190,6 +206,10 @@ export function createLoginUseCases(deps: { uow: UnitOfWork; clock: Clock; users
         lockMs: PASSWORD_LOCK_MS,
         extra: { clientKey },
         requires: 'backoffice.login'
+      }
+      // Over the caps: nothing legitimate, and not worth a hash. Answered like an unknown user.
+      if (username.length > MAX_USERNAME_LENGTH || password.length > MAX_PASSWORD_LENGTH) {
+        return rejectUnknown(door, '', undefined, clientKey)
       }
       const name = normalizeUsername(username)
       const user = name === null ? undefined : users.findByUsername(name)

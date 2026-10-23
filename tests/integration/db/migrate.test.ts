@@ -43,6 +43,24 @@ describe('migrate', () => {
     expect(index?.sql).toMatch(/backup_runs \(kind, at\)/)
   })
 
+  it('003 gives every user a till PIN failure counter and lock of their own, empty for existing users', () => {
+    t = tempDb({ migrate: false })
+    migrate(t.db, migrations.slice(0, 2))
+    t.db.prepare("INSERT INTO profiles (id, name_json, permissions_json) VALUES ('p', '{}', '[]')").run()
+    t.db
+      .prepare(
+        `INSERT INTO users (id, display_name, pin_hash, profile_id, failed_logins, locked_until, created_at)
+         VALUES ('u', 'U', 'h', 'p', 3, '2026-10-22T10:15:00.000Z', 'now')`
+      )
+      .run()
+    migrate(t.db)
+    expect(
+      t.db
+        .prepare('SELECT failed_logins, locked_until, pin_failed_logins, pin_locked_until FROM users WHERE id = ?')
+        .get('u')
+    ).toEqual({ failed_logins: 3, locked_until: '2026-10-22T10:15:00.000Z', pin_failed_logins: 0, pin_locked_until: null })
+  })
+
   it('creates every table of schema v1', () => {
     t = tempDb()
     expect(tableNames(t).sort()).toEqual([...TABLES].sort())

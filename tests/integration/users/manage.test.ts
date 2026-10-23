@@ -217,17 +217,44 @@ describe('saveUser', () => {
     })
   })
 
-  it('unlocks a user whose PIN or password is reset', async () => {
-    for (let i = 0; i < 5; i++) await h.service.loginPin('u-sara', '0000')
-    expect(user('u-sara').locked_until).not.toBeNull()
-    await h.service.saveUser(h.manager, {
-      id: 'u-sara',
-      displayName: 'Sara',
-      profileId: h.seeded.profiles.caissier,
+  it("lifts the till lock when the PIN is reset, and leaves the back office lock alone", async () => {
+    for (let i = 0; i < 5; i++) await h.service.loginPin('u-amine', '0000')
+    for (let i = 0; i < 5; i++) await h.service.loginPassword('amine', 'wrong-password', 'c1')
+    const state = () =>
+      h.t.db
+        .prepare("SELECT pin_failed_logins, pin_locked_until, failed_logins, locked_until FROM users WHERE id = 'u-amine'")
+        .get() as { pin_locked_until: string | null; locked_until: string | null }
+    expect(state().pin_locked_until).not.toBeNull()
+    expect(state().locked_until).not.toBeNull()
+
+    const r = await h.service.saveUser(h.manager, {
+      id: 'u-amine',
+      displayName: 'Amine Benali',
+      profileId: h.seeded.profiles.gerant,
       pin: '7777'
     })
-    expect(user('u-sara')).toMatchObject({ failed_logins: 0, locked_until: null })
-    expect((await h.service.loginPin('u-sara', '7777')).ok).toBe(true)
+    expect(r.ok).toBe(true)
+    expect(state()).toMatchObject({ pin_failed_logins: 0, pin_locked_until: null })
+    expect(state().locked_until).not.toBeNull()
+    expect((await h.service.loginPin('u-amine', '7777')).ok).toBe(true)
+  })
+
+  it('lifts the back office lock when the password is reset, and leaves the till lock alone', async () => {
+    for (let i = 0; i < 5; i++) await h.service.loginPin('u-amine', '0000')
+    for (let i = 0; i < 5; i++) await h.service.loginPassword('amine', 'wrong-password', 'c1')
+
+    const r = await h.service.saveUser(h.manager, {
+      id: 'u-amine',
+      displayName: 'Amine Benali',
+      profileId: h.seeded.profiles.gerant,
+      password: 'Brand-New-Password-1'
+    })
+    expect(r.ok).toBe(true)
+    expect(user('u-amine')).toMatchObject({ failed_logins: 0, locked_until: null })
+    expect(
+      (h.t.db.prepare("SELECT pin_locked_until AS p FROM users WHERE id = 'u-amine'").get() as { p: string | null }).p
+    ).not.toBeNull()
+    expect((await h.service.loginPassword('amine', 'Brand-New-Password-1', 'c1')).ok).toBe(true)
   })
 
   it('keeps two parallel saves from both taking the same PIN', async () => {
@@ -371,19 +398,152 @@ describe('saveProfile', () => {
       profileId: h.seeded.profiles.caissier,
       pin: '1111'
     })
-    h.service.saveProfile(h.manager, {
+    const promoted = h.service.saveProfile(h.manager, {
       id: 'p-caissier',
       name: { fr: 'Caissier' },
       permissions: [...PERMISSIONS],
       maxDiscountBp: 1000
     })
     expect(other.ok).toBe(true)
+    expect(promoted.ok).toBe(true)
     const r = h.service.saveProfile(h.manager, {
       id: 'p-gerant',
       name: { fr: 'Gérant' },
       permissions: PERMISSIONS.filter((p) => p !== 'backup.restore'),
       maxDiscountBp: 10000
     })
+    expect(r.ok).toBe(true)
+  })
+})
+
+describe('privilege boundary: a session only hands out what it holds', () => {
+  let h: UsersHarness
+  beforeEach(() => {
+    h = usersHarness()
+  })
+  afterEach(() => h.cleanup())
+
+  // A sub-manager: may manage users, but holds neither every permission nor backup.restore.
+  const SUB_PERMISSIONS = ['users.manage', 'order.discount', 'report.x', 'ticket.reprint'] as const
+  const sub = () => sessionOf('u-sub', SUB_PERMISSIONS, 2000)
+  const escalation = { ok: false, error: { code: 'forbidden', params: { reason: 'privilege_escalation' } } }
+
+  const row = (id: string) => h.t.db.prepare('SELECT * FROM users WHERE id = ?').get(id) as Record<string, unknown>
+  const profileRow = (id: string) =>
+    h.t.db.prepare('SELECT permissions_json, max_discount_bp FROM profiles WHERE id = ?').get(id) as {
+      permissions_json: string
+      max_discount_bp: number
+    }
+  const count = (table: string): number =>
+    (h.t.db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n
+
+  it('refuses to create a user on a profile that holds more than the session', async () => {
+    const r = await h.service.saveUser(sub(), { displayName: 'New Gérant', profileId: h.seeded.profiles.gerant, pin: '4567' })
+    expect(r).toMatchObject(escalation)
+    expect(count('users')).toBe(3)
+  })
+
+  it("refuses to edit a Gérant: no PIN reset, no password reset, no deactivation, no move to a lower profile", async () => {
+    const before = row('u-amine')
+    const gerant = h.seeded.profiles.gerant
+    const edits = [
+      { pin: '4567' },
+      { password: 'Attacker-Password-1' },
+      { active: false },
+      { profileId: h.seeded.profiles.serveur },
+      { displayName: 'Renamed' }
+    ]
+    for (const edit of edits) {
+      const r = await h.service.saveUser(sub(), { id: 'u-amine', displayName: 'Amine Benali', profileId: gerant, ...edit })
+      expect(r, JSON.stringify(edit)).toMatchObject(escalation)
+    }
+    expect(row('u-amine')).toEqual(before)
+  })
+
+  it('refuses to move a user up to a profile that holds more than the session', async () => {
+    const r = await h.service.saveUser(sub(), {
+      id: 'u-sara',
+      displayName: 'Sara',
+      profileId: h.seeded.profiles.gerant
+    })
+    expect(r).toMatchObject(escalation)
+    expect(row('u-sara')['profile_id']).toBe('p-caissier')
+  })
+
+  it("answers with the refusal, not with a PIN check, so a refused session learns nothing about other users' PINs", async () => {
+    const r = await h.service.saveUser(sub(), {
+      id: 'u-amine',
+      displayName: 'Amine Benali',
+      profileId: h.seeded.profiles.gerant,
+      pin: PINS.sara
+    })
+    expect(r).toMatchObject(escalation)
+  })
+
+  it('still lets it manage users whose profile it covers', async () => {
+    const created = await h.service.saveUser(sub(), {
+      displayName: 'Nadia',
+      profileId: h.seeded.profiles.caissier,
+      pin: '4567'
+    })
+    expect(created.ok).toBe(true)
+    const edited = await h.service.saveUser(sub(), {
+      id: 'u-sara',
+      displayName: 'Sara E.',
+      profileId: h.seeded.profiles.serveur,
+      pin: '7777'
+    })
+    expect(edited.ok).toBe(true)
+  })
+
+  it('refuses to create or edit a profile with a permission the session lacks', () => {
+    const create = h.service.saveProfile(sub(), {
+      name: { fr: 'Chef' },
+      permissions: ['order.discount', 'backup.restore'],
+      maxDiscountBp: 0
+    })
+    expect(create).toMatchObject(escalation)
+    const grow = h.service.saveProfile(sub(), {
+      id: 'p-caissier',
+      name: { fr: 'Caissier' },
+      permissions: [...JSON.parse(profileRow('p-caissier').permissions_json), 'settings.manage'],
+      maxDiscountBp: 1000
+    })
+    expect(grow).toMatchObject(escalation)
+    expect(count('profiles')).toBe(3)
+    expect(JSON.parse(profileRow('p-caissier').permissions_json)).toEqual(['order.discount', 'report.x', 'ticket.reprint'])
+  })
+
+  it('refuses to edit a profile that holds more than the session, even to shrink it', () => {
+    const before = profileRow('p-gerant')
+    const r = h.service.saveProfile(sub(), {
+      id: 'p-gerant',
+      name: { fr: 'Gérant' },
+      permissions: ['order.discount'],
+      maxDiscountBp: 0
+    })
+    expect(r).toMatchObject(escalation)
+    expect(profileRow('p-gerant')).toEqual(before)
+  })
+
+  it('still lets it create and edit profiles within its own permissions', () => {
+    const created = h.service.saveProfile(sub(), {
+      name: { fr: 'Stagiaire' },
+      permissions: ['order.discount', 'report.x'],
+      maxDiscountBp: 500
+    })
+    expect(created.ok).toBe(true)
+    const edited = h.service.saveProfile(sub(), {
+      id: 'p-caissier',
+      name: { fr: 'Caissier' },
+      permissions: ['order.discount', 'users.manage'],
+      maxDiscountBp: 1000
+    })
+    expect(edited.ok).toBe(true)
+  })
+
+  it('does not restrict a session that holds everything', async () => {
+    const r = await h.service.saveUser(h.manager, { displayName: 'Another Gérant', profileId: h.seeded.profiles.gerant, pin: '4567' })
     expect(r.ok).toBe(true)
   })
 })
