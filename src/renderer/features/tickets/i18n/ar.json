@@ -11,6 +11,17 @@
     "cancelReason": "سبب الإلغاء",
     "cancelled": "تم إصدار الإشعار {{label}}",
     "cancelledTag": "ملغى",
-    "credit": "إشعار عن {{label}}"
+    "credit": "إشعار عن {{label}}",
+    "invoice": {
+      "button": "فاتورة",
+      "pickTitle": "فاتورة التذكرة {{label}}: اختر الشركة",
+      "title": "الفاتورة {{number}}",
+      "forTicket": "التذكرة {{label}}",
+      "savePdf": "حفظ بصيغة PDF",
+      "saved": "تم حفظ الفاتورة {{number}}",
+      "printOn": "الطباعة على {{printer}}",
+      "printed": "أُرسلت الفاتورة {{number}} إلى {{printer}}",
+      "noA4Printer": "لا توجد طابعة نظام لفاتورة A4: احفظها بصيغة PDF."
+    }
   }
 }

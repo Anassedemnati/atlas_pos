@@ -50,6 +50,13 @@
     "productPrice": "Price incl. VAT (DH)",
     "productCategory": "Category",
     "createProduct": "Create the product",
-    "needManagerForProduct": "Only a manager can create a product. Ask them to sign in."
+    "splitByItems": "By items",
+    "splitEqual": "Equal parts",
+    "equalHint": "Left to pay: {{amount}}. How many parts?",
+    "equalPart": "Part {{n}}/{{total}}: {{amount}}",
+    "equalDue": "Left to pay: {{amount}}",
+    "equalChange": "Change the number of parts",
+    "coversEdit": "Number of guests",
+    "customer": "Customer"
   }
 }

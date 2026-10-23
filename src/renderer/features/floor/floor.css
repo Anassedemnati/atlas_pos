@@ -181,3 +181,64 @@
   grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
   gap: var(--space-3);
 }
+
+/* The floor plan editor: tables are dragged and pulled by their corners, so the page must not pan under the finger. */
+.floor__editor-rooms {
+  margin-block-end: var(--space-4);
+}
+.floor--editor .floor__side {
+  overflow: auto;
+  min-block-size: 0;
+}
+.floor__side-room {
+  margin-block-start: auto;
+  padding-block-start: var(--space-3);
+  border-block-start: 2px solid var(--line);
+}
+.floor__canvas--editor {
+  background:
+    linear-gradient(to right, rgb(20 33 61 / 6%) 1px, transparent 1px) 0 0 / 30px 30px,
+    linear-gradient(to bottom, rgb(20 33 61 / 6%) 1px, transparent 1px) 0 0 / 30px 30px,
+    var(--surface);
+  border: 2px dashed var(--line-strong);
+  border-radius: var(--radius-sm);
+}
+.table-tile--edit {
+  touch-action: none;
+  user-select: none;
+  cursor: grab;
+}
+.table-tile--edit:active {
+  transform: none;
+}
+.table-tile--selected {
+  outline: 4px solid var(--teal);
+  outline-offset: 3px;
+  z-index: 2;
+}
+.table-handle {
+  position: absolute;
+  inline-size: 36px;
+  block-size: 36px;
+  border-radius: 50%;
+  border: 3px solid var(--teal-strong);
+  background: #fff;
+  touch-action: none;
+  cursor: nwse-resize;
+}
+.table-handle--nw {
+  inset-inline-start: -18px;
+  inset-block-start: -18px;
+}
+.table-handle--ne {
+  inset-inline-end: -18px;
+  inset-block-start: -18px;
+}
+.table-handle--sw {
+  inset-inline-start: -18px;
+  inset-block-end: -18px;
+}
+.table-handle--se {
+  inset-inline-end: -18px;
+  inset-block-end: -18px;
+}

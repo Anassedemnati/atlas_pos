@@ -5,6 +5,7 @@ import type { ZHistoryDto } from '@shared/ipc/till'
 import { errorMessage, invoke, useApi, useQuery } from '../../app/api'
 import { navigate } from '../../app/router'
 import { Button, ConfirmDialog, EmptyState, Modal, useToast } from '../../ui'
+import { firstToken, useGuard } from '../till/Override'
 import { TillLayout } from '../till/TillLayout'
 import { useFormat } from '../till/format'
 import { can, useTill } from '../till/store'
@@ -35,6 +36,7 @@ function Closure() {
   const toast = useToast()
   const api = useApi()
   const data = useTill()
+  const { guard } = useGuard()
   const { money } = useFormat()
   const x = useQuery('days.xReport', {}, { silent: true, refreshOn: ['ticket.closed', 'day.closed', 'order.changed'] })
   const history = useQuery('days.history', {}, { silent: true, refreshOn: ['day.closed'], enabled: can(data, 'report.x') })
@@ -47,7 +49,8 @@ function Closure() {
   const closeDay = async () => {
     setConfirm(false)
     setBusy(true)
-    const result = await invoke('days.close', {})
+    // A cashier asks a manager for the Z (PIN); the open orders that block it are listed on the screen, not toasted.
+    const result = await guard((tokens) => invoke('days.close', { overrideTokenId: firstToken(tokens) }), { quiet: (error) => error.code === 'open_orders_exist' })
     setBusy(false)
     if (result.ok) {
       setBlocking([])
@@ -57,7 +60,6 @@ function Closure() {
     }
     const orders = result.error.params?.['orders']
     if (result.error.code === 'open_orders_exist' && Array.isArray(orders)) setBlocking(orders as BlockingOrder[])
-    else toast.error(errorMessage(result.error))
   }
 
   const view = async (row: ZHistoryDto) => {
@@ -96,13 +98,12 @@ function Closure() {
           </div>
         )}
         <div className="closure__actions">
-          {done ? null : can(data, 'day.close') ? (
+          {done ? null : (
             <Button size="xl" onClick={() => setConfirm(true)} disabled={busy || !x.data} data-testid="close-day">
               {t('closure.closeDay')}
             </Button>
-          ) : (
-            <p className="warn-text">{t('closure.needManager')}</p>
           )}
+          {!done && !can(data, 'day.close') && <p className="muted">{t('closure.needManager')}</p>}
         </div>
       </section>
       <aside className="closure__history card">

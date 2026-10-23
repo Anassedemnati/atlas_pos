@@ -1,14 +1,17 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { TableDto } from '@shared/dto'
 import type { OrderSummaryDto } from '@shared/ipc/till'
 import { useApi, useQuery } from '../../app/api'
 import { navigate } from '../../app/router'
-import { Button, Icon, Keypad, Modal, Tabs, type TabItem } from '../../ui'
+import { Button, Icon, Tabs, type TabItem } from '../../ui'
 import { useFormat, minutesSince } from '../till/format'
+import { CoversDialog } from '../till/CoversDialog'
 import { TillLayout } from '../till/TillLayout'
-import { can, useTill } from '../till/store'
+import { can, moduleOn, useTill } from '../till/store'
+import { FloorEditor } from './FloorEditor'
 import { TableDialog } from './TableDialog'
+import { useFit } from './useFit'
 
 type View = string
 
@@ -33,17 +36,25 @@ function FloorTabs({ view: chosen, onChange }: { view: View; onChange: (view: Vi
 /** The floor plan of a restaurant (mockup 05): rooms as tabs, tables where they are, takeaway and delivery lists. */
 export function FloorPlan() {
   const [view, setView] = useState<View>('')
+  const [editing, setEditing] = useState(false)
   return (
-    <TillLayout nav={<FloorTabs view={view} onChange={setView} />}>
-      <FloorBody view={view} />
+    <TillLayout nav={editing ? undefined : <FloorTabs view={view} onChange={setView} />}>
+      {editing ? <EditorHost onClose={() => setEditing(false)} /> : <FloorBody view={view} onEdit={() => setEditing(true)} />}
     </TillLayout>
   )
+}
+
+/** The editor, told which tables have an order open (those cannot be removed). */
+function EditorHost({ onClose }: { onClose: () => void }) {
+  const orders = useOrderList()
+  const busy = useMemo(() => new Set((orders.data ?? []).flatMap((o) => (o.tableId ? [o.tableId] : []))), [orders.data])
+  return <FloorEditor busyTableIds={busy} onClose={onClose} />
 }
 
 /** The tab shown first: the first room. */
 const defaultView = (rooms: { id: string; sort: number }[]): View => `room:${[...rooms].sort((a, b) => a.sort - b.sort)[0]?.id ?? 'none'}`
 
-function FloorBody({ view: chosen }: { view: View }) {
+function FloorBody({ view: chosen, onEdit }: { view: View; onEdit: () => void }) {
   const { t } = useTranslation()
   const data = useTill()
   const view = chosen || defaultView(data.floor.rooms)
@@ -67,6 +78,11 @@ function FloorBody({ view: chosen }: { view: View }) {
           {can(data, 'report.x') && (
             <Button size="xl" variant="secondary" icon="chart" onClick={() => navigate('/closure')} data-testid="open-closure">
               {t('floor.closure')}
+            </Button>
+          )}
+          {can(data, 'settings.manage') && moduleOn(data, 'tables') && (
+            <Button size="xl" variant="secondary" icon="gear" onClick={onEdit} data-testid="floor-edit">
+              {t('floor.editor.edit')}
             </Button>
           )}
         </nav>
@@ -121,25 +137,10 @@ function SidePanel({ orders }: { orders: OrderSummaryDto[] }) {
   )
 }
 
-/** Scales the room's drawing (its coordinates are in design pixels) to the space there is. */
-function useFit(width: number, height: number) {
-  const ref = useRef<HTMLDivElement>(null)
-  const [scale, setScale] = useState(1)
-  useEffect(() => {
-    const node = ref.current
-    if (!node) return
-    const measure = () => setScale(Math.min((node.clientWidth - 32) / width, (node.clientHeight - 96) / height, 1.6) || 1)
-    measure()
-    const observer = new ResizeObserver(measure)
-    observer.observe(node)
-    return () => observer.disconnect()
-  }, [width, height])
-  return { ref, scale }
-}
-
 function Rooms({ roomId, orders }: { roomId: string; orders: OrderSummaryDto[] }) {
   const { t } = useTranslation()
   const api = useApi()
+  const { tableName } = useFormat()
   const { floor } = useTill()
   const [covers, setCovers] = useState<TableDto | null>(null)
   const [actions, setActions] = useState<{ table: TableDto; order: OrderSummaryDto } | null>(null)
@@ -173,7 +174,15 @@ function Rooms({ roomId, orders }: { roomId: string; orders: OrderSummaryDto[] }
         ))}
       </div>
       {tables.length === 0 && <p className="muted">{t('floor.noTables')}</p>}
-      {covers && <CoversDialog table={covers} onCancel={() => setCovers(null)} onConfirm={(count) => void open(covers, count)} />}
+      {covers && (
+        <CoversDialog
+          title={`${tableName(covers.label)} · ${t('floor.coversTitle')}`}
+          hint={t('floor.seats', { count: covers.seats })}
+          enterLabel={t('floor.open')}
+          onCancel={() => setCovers(null)}
+          onConfirm={(count) => void open(covers, count)}
+        />
+      )}
       {actions && <TableDialog table={actions.table} order={actions.order} orders={orders} onClose={() => setActions(null)} />}
     </div>
   )
@@ -240,28 +249,6 @@ function TableTile({
         </>
       )}
     </button>
-  )
-}
-
-function CoversDialog({ table, onCancel, onConfirm }: { table: TableDto; onCancel: () => void; onConfirm: (covers: number) => void }) {
-  const { t } = useTranslation()
-  const { tableName } = useFormat()
-  const [text, setText] = useState('')
-  const covers = text === '' ? 0 : Number(text)
-  return (
-    <Modal open onClose={onCancel} title={`${tableName(table.label)} · ${t('floor.coversTitle')}`} size="sm">
-      <div className="stack" style={{ alignItems: 'center' }} data-testid="covers-dialog">
-        <p className="muted">{t('floor.seats', { count: table.seats })}</p>
-        <div className="cluster">
-          {[1, 2, 3, 4, 6].map((n) => (
-            <Button key={n} variant="secondary" onClick={() => onConfirm(n)} data-testid={`covers-${n}`}>
-              {n}
-            </Button>
-          ))}
-        </div>
-        <Keypad mode="qty" value={text} onChange={(v) => setText(v.replace(/[^0-9]/g, ''))} onEnter={() => onConfirm(covers)} enterLabel={t('floor.open')} maxLength={3} minLength={1} />
-      </div>
-    </Modal>
   )
 }
 

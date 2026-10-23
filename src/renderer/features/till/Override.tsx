@@ -14,13 +14,18 @@ export interface GuardApi {
    * limit, an offered line, a payment removed), a manager's PIN is asked and the action runs again with the approval.
    * Any other refusal is shown as a message. Cancelling the PIN prompt returns the first refusal without a message.
    */
-  guard<T>(run: (tokens: Tokens) => Promise<Result<T>>): Promise<Result<T>>
+  guard<T>(run: (tokens: Tokens) => Promise<Result<T>>, options?: GuardOptions): Promise<Result<T>>
+}
+
+export interface GuardOptions {
+  /** Refusals the caller shows itself (a panel next to the action): they are returned without a message. */
+  quiet?: (error: AppError) => boolean
 }
 
 const GuardContext = createContext<GuardApi>({ guard: (run) => run({}) })
 export const useGuard = (): GuardApi => useContext(GuardContext)
 
-const OVERRIDABLE: Permission[] = ['order.free_item', 'ticket.cancel', 'order.discount.override']
+const OVERRIDABLE: Permission[] = ['order.free_item', 'ticket.cancel', 'order.discount.override', 'order.void_sent', 'day.close', 'catalog.manage']
 
 /** The permission a manager would have to approve, from a refusal; null when no approval can help. */
 export function approvalNeeded(error: AppError): Permission | null {
@@ -78,7 +83,7 @@ export function OverrideProvider({ children }: { children: ReactNode }) {
 
   const api = useMemo<GuardApi>(
     () => ({
-      async guard<T>(run: (tokens: Tokens) => Promise<Result<T>>): Promise<Result<T>> {
+      async guard<T>(run: (tokens: Tokens) => Promise<Result<T>>, options?: GuardOptions): Promise<Result<T>> {
         const tokens: Tokens = {}
         let result = await run(tokens)
         // At most two approvals for one action (an offered line can also exceed the discount limit).
@@ -90,7 +95,7 @@ export function OverrideProvider({ children }: { children: ReactNode }) {
           tokens[needed] = tokenId
           result = await run(tokens)
         }
-        if (!result.ok) toast.error(errorMessage(result.error))
+        if (!result.ok && !options?.quiet?.(result.error)) toast.error(errorMessage(result.error))
         return result
       }
     }),

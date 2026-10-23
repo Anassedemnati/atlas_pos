@@ -16,7 +16,7 @@
     "gate": {
       "title": "Clôturez la journée précédente",
       "message": "La journée n° {{number}} est trop ancienne : faites sa clôture (Z) avant de vendre.",
-      "needManager": "Seul un gérant peut clôturer la journée. Changez d'utilisateur.",
+      "needManager": "Un gérant devra saisir son code PIN pour clôturer la journée.",
       "close": "Clôturer la journée",
       "finishOrders": "Terminer les commandes ouvertes"
     },
@@ -41,6 +41,23 @@
         "failed": "Échec",
         "uncertain": "À réimprimer ?"
       }
+    },
+    "customer": {
+      "title": "Client",
+      "search": "Rechercher un client",
+      "searchPlaceholder": "Nom, société, ICE ou téléphone",
+      "none": "Aucun client trouvé.",
+      "new": "Nouveau client",
+      "create": "Créer et choisir",
+      "name": "Nom",
+      "companyName": "Raison sociale",
+      "ice": "ICE (15 chiffres)",
+      "iceInvalid": "L'ICE compte 15 chiffres.",
+      "iceShort": "ICE",
+      "address": "Adresse",
+      "phone": "Téléphone",
+      "backToSearch": "Retour à la recherche",
+      "clear": "Retirer le client"
     }
   }
 }

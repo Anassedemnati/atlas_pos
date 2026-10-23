@@ -164,7 +164,7 @@
     "order_empty": "The order is empty.",
     "open_orders_exist": "Some orders are still open.",
     "table_occupied": "This table is already occupied.",
-    "table_in_use": "This table has an open order: settle or move it first.",
+    "table_in_use": "Table {{label}} has an open order: settle or move it first.",
     "line_sent": "This line has already gone to the kitchen.",
     "line_void": "This line is already voided.",
     "nothing_to_send": "Nothing to send to the kitchen.",

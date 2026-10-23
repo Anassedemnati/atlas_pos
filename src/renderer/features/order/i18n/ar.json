@@ -50,6 +50,13 @@
     "productPrice": "السعر شامل الضريبة (درهم)",
     "productCategory": "الفئة",
     "createProduct": "إنشاء المنتج",
-    "needManagerForProduct": "المدير فقط يمكنه إنشاء منتج. اطلب منه تسجيل الدخول."
+    "splitByItems": "حسب المنتجات",
+    "splitEqual": "أجزاء متساوية",
+    "equalHint": "المتبقي للدفع: {{amount}}. كم عدد الأجزاء؟",
+    "equalPart": "الجزء {{n}}/{{total}}: {{amount}}",
+    "equalDue": "المتبقي للدفع: {{amount}}",
+    "equalChange": "تغيير عدد الأجزاء",
+    "coversEdit": "عدد الضيوف",
+    "customer": "الزبون"
   }
 }

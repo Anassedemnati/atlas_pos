@@ -29,6 +29,37 @@
     "transferTo": "Pick a free table:",
     "noFreeTable": "No free table.",
     "merge": "Merge with another table",
-    "mergeInto": "Merge into the order of:"
+    "mergeInto": "Merge into the order of:",
+    "editor": {
+      "edit": "Edit the plan",
+      "title": "Edit the floor plan",
+      "addTable": "Add a table",
+      "addRoom": "Add a room",
+      "renameRoom": "Rename the room",
+      "removeRoom": "Remove the room",
+      "roomName": "Room name",
+      "removeRoomConfirm": "Remove the room “{{name}}” and its tables?",
+      "noRoom": "No room: add one.",
+      "tableLabel": "Table name",
+      "seats": "Seats",
+      "fewerSeats": "Fewer seats",
+      "moreSeats": "More seats",
+      "shape": "Shape",
+      "shapes": {
+        "square": "Square",
+        "round": "Round",
+        "rect": "Rectangle"
+      },
+      "deleteTable": "Remove the table",
+      "tableBusy": "This table has an open order.",
+      "save": "Save the plan",
+      "saved": "Plan saved",
+      "discardTitle": "Discard the changes?",
+      "discardMessage": "The changes to the plan will not be saved.",
+      "discard": "Discard",
+      "hint": "Touch a table to edit it. Drag it to move it, pull a corner to resize it.",
+      "emptyLabel": "The name is required.",
+      "duplicateLabel": "This name is already used in this room."
+    }
   }
 }

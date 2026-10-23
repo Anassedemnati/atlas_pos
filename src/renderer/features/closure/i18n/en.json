@@ -23,7 +23,7 @@
     "done": "Day closed: Z no. {{number}} printed",
     "blocked": "Cannot close: these orders are still open. Pay or empty them.",
     "openOrder": "Open",
-    "needManager": "Only a manager can close the day.",
+    "needManager": "A manager will have to enter their PIN to confirm the closure.",
     "history": "Past closures",
     "noHistory": "No closure yet.",
     "view": "View",

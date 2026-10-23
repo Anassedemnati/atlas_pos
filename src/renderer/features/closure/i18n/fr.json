@@ -23,7 +23,7 @@
     "done": "Journée clôturée : Z n° {{number}} imprimé",
     "blocked": "Clôture impossible : ces commandes sont encore ouvertes. Encaissez-les ou videz-les.",
     "openOrder": "Ouvrir",
-    "needManager": "Seul un gérant peut clôturer la journée.",
+    "needManager": "Un gérant devra saisir son code PIN pour valider la clôture.",
     "history": "Clôtures passées",
     "noHistory": "Aucune clôture pour le moment.",
     "view": "Voir",

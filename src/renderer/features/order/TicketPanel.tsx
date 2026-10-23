@@ -21,6 +21,12 @@ export interface TicketPanelProps {
   onSplit: () => void
   onPay: () => void
   onPark?: () => void
+  /** Change the number of guests (a table). */
+  onCovers?: () => void
+  /** Pick, change or remove the customer of the order. */
+  onCustomer?: () => void
+  /** The customer of the order, when it has one. */
+  customerName?: string | null
 }
 
 /** The ticket of the order in progress: lines, totals and the actions on the bill (mockup 06). */
@@ -49,16 +55,29 @@ export function TicketPanel(props: TicketPanelProps) {
               : order
                 ? t(`till.type.${order.type}`)
                 : null}
+            {props.customerName && <span data-testid="ticket-customer-name"> · {props.customerName}</span>}
           </p>
         </div>
-        {order && props.onPark && (
+        {order && (props.onPark || props.onCovers || props.onCustomer) && (
           <div className="ticket__more">
             <Button variant="secondary" icon="plus" aria-label={t('order.more')} onClick={() => setMore(!more)} data-testid="ticket-more" />
             {more && (
               <div className="ticket__menu">
-                <Button variant="secondary" onClick={() => { setMore(false); props.onPark?.() }} data-testid="ticket-park">
-                  {t('order.park')}
-                </Button>
+                {props.onCovers && (
+                  <Button variant="secondary" onClick={() => { setMore(false); props.onCovers?.() }} data-testid="ticket-covers">
+                    {t('order.coversEdit')}
+                  </Button>
+                )}
+                {props.onCustomer && (
+                  <Button variant="secondary" onClick={() => { setMore(false); props.onCustomer?.() }} data-testid="ticket-customer">
+                    {t('order.customer')}
+                  </Button>
+                )}
+                {props.onPark && (
+                  <Button variant="secondary" onClick={() => { setMore(false); props.onPark?.() }} data-testid="ticket-park">
+                    {t('order.park')}
+                  </Button>
+                )}
               </div>
             )}
           </div>
@@ -145,7 +164,7 @@ export function TicketPanel(props: TicketPanelProps) {
             {t('order.discount')}
           </Button>
           {props.canSplit && (
-            <Button variant="secondary" icon="split" disabled={props.busy || lines.length < 2} onClick={props.onSplit} data-testid="split">
+            <Button variant="secondary" icon="split" disabled={props.busy || empty} onClick={props.onSplit} data-testid="split">
               {t('order.split')}
             </Button>
           )}

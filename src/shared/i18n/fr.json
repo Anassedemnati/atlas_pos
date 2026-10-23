@@ -164,7 +164,7 @@
     "order_empty": "La commande est vide.",
     "open_orders_exist": "Des commandes sont encore ouvertes.",
     "table_occupied": "Cette table est déjà occupée.",
-    "table_in_use": "Cette table a une commande ouverte : encaissez ou déplacez-la d'abord.",
+    "table_in_use": "La table {{label}} a une commande ouverte : encaissez-la ou déplacez-la d'abord.",
     "line_sent": "Cette ligne est déjà partie en cuisine.",
     "line_void": "Cette ligne est déjà annulée.",
     "nothing_to_send": "Rien à envoyer en cuisine.",

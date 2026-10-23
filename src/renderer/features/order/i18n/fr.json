@@ -50,6 +50,13 @@
     "productPrice": "Prix TTC (DH)",
     "productCategory": "Catégorie",
     "createProduct": "Créer le produit",
-    "needManagerForProduct": "Seul un gérant peut créer un produit. Demandez-lui de se connecter."
+    "splitByItems": "Par articles",
+    "splitEqual": "Parts égales",
+    "equalHint": "Reste à payer : {{amount}}. En combien de parts ?",
+    "equalPart": "Part {{n}}/{{total}} : {{amount}}",
+    "equalDue": "Reste à payer : {{amount}}",
+    "equalChange": "Changer le nombre de parts",
+    "coversEdit": "Nombre de couverts",
+    "customer": "Client"
   }
 }

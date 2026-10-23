@@ -2,10 +2,10 @@ import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { parseMoney } from '@shared/money'
 import { invoke } from '../../app/api'
-import { Button, Icon, Modal, Select, TextField, useToast } from '../../ui'
-import { errorMessage } from '../../app/api'
+import { Button, Icon, Modal, Select, TextField } from '../../ui'
 import { useFormat } from '../till/format'
-import { can, loadTillData, useTill } from '../till/store'
+import { useGuard } from '../till/Override'
+import { loadTillData, useTill } from '../till/store'
 
 export interface ScanBarProps {
   /** A barcode was read: a known product is added by the pad, an unknown one returns false. */
@@ -67,13 +67,12 @@ export function ScanBar({ onScan, onCreated }: ScanBarProps) {
   )
 }
 
-/** An unknown barcode: a manager gives it a name, a price and a category so the sale can go on. */
+/** An unknown barcode: a name, a price and a category so the sale can go on (a cashier asks a manager's PIN to create it). */
 function QuickCreate({ barcode, onClose, onCreated }: { barcode: string; onClose: () => void; onCreated: (id: string) => void }) {
   const { t } = useTranslation()
-  const toast = useToast()
+  const { guard } = useGuard()
   const data = useTill()
   const { name } = useFormat()
-  const allowed = can(data, 'catalog.manage')
   const [label, setLabel] = useState('')
   const [price, setPrice] = useState('')
   const [category, setCategory] = useState<string | null>(data.catalog.categories[0]?.id ?? null)
@@ -82,8 +81,10 @@ function QuickCreate({ barcode, onClose, onCreated }: { barcode: string; onClose
 
   const create = async () => {
     if (!ready || cents === null || category === null) return
-    const result = await invoke('catalog.quickCreateProduct', { barcode, name: label.trim(), priceCents: cents, categoryId: category })
-    if (!result.ok) return void toast.error(errorMessage(result.error))
+    const result = await guard((tokens) =>
+      invoke('catalog.quickCreateProduct', { barcode, name: label.trim(), priceCents: cents, categoryId: category, overrideTokenId: tokens['catalog.manage'] })
+    )
+    if (!result.ok) return
     await loadTillData()
     onCreated(result.value.id)
   }
@@ -95,28 +96,20 @@ function QuickCreate({ barcode, onClose, onCreated }: { barcode: string; onClose
       title={t('order.unknownBarcode', { barcode })}
       size="md"
       footer={
-        allowed ? (
-          <Button size="lg" block disabled={!ready} onClick={() => void create()} data-testid="quick-confirm">
-            {t('order.createProduct')}
-          </Button>
-        ) : undefined
+        <Button size="lg" block disabled={!ready} onClick={() => void create()} data-testid="quick-confirm">
+          {t('order.createProduct')}
+        </Button>
       }
     >
       <div className="stack" data-testid="quick-create">
-        {allowed ? (
-          <>
-            <TextField label={t('order.productName')} value={label} onChange={setLabel} maxLength={100} autoFocus data-testid="quick-name" />
-            <TextField label={t('order.productPrice')} value={price} onChange={setPrice} inputMode="decimal" data-testid="quick-price" />
-            <Select
-              label={t('order.productCategory')}
-              value={category}
-              options={data.catalog.categories.map((c) => ({ value: c.id, label: name(c.name) }))}
-              onChange={setCategory}
-            />
-          </>
-        ) : (
-          <p className="warn-text">{t('order.needManagerForProduct')}</p>
-        )}
+        <TextField label={t('order.productName')} value={label} onChange={setLabel} maxLength={100} autoFocus data-testid="quick-name" />
+        <TextField label={t('order.productPrice')} value={price} onChange={setPrice} inputMode="decimal" data-testid="quick-price" />
+        <Select
+          label={t('order.productCategory')}
+          value={category}
+          options={data.catalog.categories.map((c) => ({ value: c.id, label: name(c.name) }))}
+          onChange={setCategory}
+        />
       </div>
     </Modal>
   )

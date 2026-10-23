@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import type { OrderDto, OrderLineDto } from '@shared/dto'
 import { invoke } from '../../app/api'
 import { Button, Modal, ReasonPicker, TextField } from '../../ui'
-import { firstToken, useGuard } from '../till/Override'
+import { firstToken, useGuard, type Tokens } from '../till/Override'
 import { formatQty, useFormat } from '../till/format'
 import { DiscountDialog } from './DiscountDialog'
 import { QtyDialog, WeightDialog } from './dialogs'
@@ -17,6 +17,9 @@ export interface LineSheetProps {
 }
 
 type Sub = null | 'qty' | 'note' | 'discount' | 'free' | 'void'
+
+/** The approvals a void can need: the discount limit, and (a line already in the kitchen) `order.void_sent`. */
+const voidTokens = (tokens: Tokens) => ({ overrideTokenId: tokens['order.discount.override'], voidOverrideTokenId: tokens['order.void_sent'] })
 
 /** What can be done to one ticket line: quantity, note, discount, offer, remove. A line already in the kitchen is frozen. */
 export function LineSheet({ order, line, onClose, onOrder }: LineSheetProps) {
@@ -80,7 +83,7 @@ export function LineSheet({ order, line, onClose, onOrder }: LineSheetProps) {
         kind="void"
         title={t('order.voidReason')}
         onCancel={() => setSub(null)}
-        onPick={async (reason) => done(await guard((tokens) => invoke('orders.voidLine', { ...ids, reason, overrideTokenId: firstToken(tokens) })))}
+        onPick={async (reason) => done(await guard((tokens) => invoke('orders.voidLine', { ...ids, reason, ...voidTokens(tokens) })))}
       />
     )
   }
@@ -136,7 +139,7 @@ export function LineSheet({ order, line, onClose, onOrder }: LineSheetProps) {
             <Button
               variant="danger"
               size="lg"
-              onClick={() => (sent ? setSub('void') : void guard((tokens) => invoke('orders.voidLine', { ...ids, reason: '', overrideTokenId: firstToken(tokens) })).then(done))}
+              onClick={() => (sent ? setSub('void') : void guard((tokens) => invoke('orders.voidLine', { ...ids, reason: '', ...voidTokens(tokens) })).then(done))}
               data-testid="line-void"
             >
               {t('order.remove')}

@@ -4,6 +4,8 @@ import type { MenuDto, OrderDto, OrderLineDto, ProductDto } from '@shared/dto'
 import { invoke, useApi, useEvent } from '../../app/api'
 import { navigate } from '../../app/router'
 import { Button, useToast } from '../../ui'
+import { CoversDialog } from '../till/CoversDialog'
+import { CustomerPicker } from '../till/CustomerPicker'
 import { TillLayout } from '../till/TillLayout'
 import { firstToken, useGuard } from '../till/Override'
 import { useFormat } from '../till/format'
@@ -26,6 +28,8 @@ type Dialog =
   | { kind: 'line'; line: OrderLineDto }
   | { kind: 'discount' }
   | { kind: 'split' }
+  | { kind: 'covers' }
+  | { kind: 'customer' }
   | { kind: 'parked' }
 
 /** The order screen of a table (`#/order/:id`) or of the counter (`#/counter`, the order opens with its first item). */
@@ -72,6 +76,8 @@ function OrderPad({ orderId, order, setOrder }: { orderId: string | null; order:
   const [busy, setBusy] = useState(false)
   const opening = useRef<Promise<OrderDto | null> | null>(null)
   const parked = useQuery('orders.list', {}, { silent: true, refreshOn: ['order.changed'], enabled: orderId === null })
+  const customerId = order?.customerId ?? null
+  const customer = useQuery('customers.get', { id: customerId ?? '' }, { silent: true, enabled: customerId !== null })
 
   // An existing order: read it; a parked one is taken back.
   const load = useCallback(async () => {
@@ -196,6 +202,9 @@ function OrderPad({ orderId, order, setOrder }: { orderId: string | null; order:
       onSplit={() => setDialog({ kind: 'split' })}
       onPay={() => order && navigate(`/pay/${order.id}`)}
       {...(order && order.type !== 'dine_in' ? { onPark: () => void park() } : {})}
+      {...(order?.type === 'dine_in' ? { onCovers: () => setDialog({ kind: 'covers' }) } : {})}
+      {...(order && moduleOn(data, 'customers') ? { onCustomer: () => setDialog({ kind: 'customer' }) } : {})}
+      customerName={customerId !== null ? (customer.data?.companyName || customer.data?.name || null) : null}
     />
   )
 
@@ -280,6 +289,43 @@ function OrderPad({ orderId, order, setOrder }: { orderId: string | null; order:
             setDialog(null)
             void load()
           }}
+        />
+      )}
+      {dialog?.kind === 'covers' && order && (
+        <CoversDialog
+          title={t('order.coversEdit')}
+          enterLabel={t('common.confirm')}
+          onCancel={() => setDialog(null)}
+          onConfirm={async (covers) => {
+            const result = await api.call('orders.setCovers', { orderId: order.id, covers })
+            if (result.ok) {
+              setOrder(result.value)
+              setDialog(null)
+            }
+          }}
+        />
+      )}
+      {dialog?.kind === 'customer' && order && (
+        <CustomerPicker
+          onClose={() => setDialog(null)}
+          onPick={async (picked) => {
+            const result = await api.call('orders.assignCustomer', { orderId: order.id, customerId: picked.id })
+            if (result.ok) {
+              setOrder(result.value)
+              setDialog(null)
+            }
+          }}
+          {...(order.customerId !== null
+            ? {
+                onClear: async () => {
+                  const result = await api.call('orders.assignCustomer', { orderId: order.id, customerId: null })
+                  if (result.ok) {
+                    setOrder(result.value)
+                    setDialog(null)
+                  }
+                }
+              }
+            : {})}
         />
       )}
       {dialog?.kind === 'parked' && <ParkedDialog orders={parkedOrders} onClose={() => setDialog(null)} />}

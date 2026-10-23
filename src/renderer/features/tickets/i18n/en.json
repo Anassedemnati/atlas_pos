@@ -11,6 +11,17 @@
     "cancelReason": "Reason for cancelling",
     "cancelled": "Credit note {{label}} issued",
     "cancelledTag": "Cancelled",
-    "credit": "Credit for {{label}}"
+    "credit": "Credit for {{label}}",
+    "invoice": {
+      "button": "Invoice",
+      "pickTitle": "Invoice for ticket {{label}}: choose the company",
+      "title": "Invoice {{number}}",
+      "forTicket": "Ticket {{label}}",
+      "savePdf": "Save as PDF",
+      "saved": "Invoice {{number}} saved",
+      "printOn": "Print on {{printer}}",
+      "printed": "Invoice {{number}} sent to {{printer}}",
+      "noA4Printer": "No system printer for an A4 invoice: save it as a PDF."
+    }
   }
 }

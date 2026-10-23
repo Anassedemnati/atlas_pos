@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { DayGateDto } from '@shared/dto'
-import { invoke, errorMessage, useQuery } from '../../app/api'
+import { invoke, useQuery } from '../../app/api'
 import { Button, Modal, useToast } from '../../ui'
 import { OpenOrdersList, type BlockingOrder } from '../closure/OpenOrders'
+import { firstToken, useGuard } from './Override'
 import { useFormat } from './format'
 import { can, signOut, useTill } from './store'
 
@@ -23,6 +24,7 @@ export function PrevDayGate({ gate, onContinue, onClosed }: PrevDayGateProps) {
   const toast = useToast()
   const data = useTill()
   const { money } = useFormat()
+  const { guard } = useGuard()
   const canClose = can(data, 'day.close')
   const x = useQuery('days.xReport', {}, { silent: true, enabled: can(data, 'report.x') })
   const [blocking, setBlocking] = useState<BlockingOrder[]>([])
@@ -30,7 +32,7 @@ export function PrevDayGate({ gate, onContinue, onClosed }: PrevDayGateProps) {
 
   const close = async () => {
     setBusy(true)
-    const result = await invoke('days.close', {})
+    const result = await guard((tokens) => invoke('days.close', { overrideTokenId: firstToken(tokens) }), { quiet: (error) => error.code === 'open_orders_exist' })
     setBusy(false)
     if (result.ok) {
       toast.success(t('closure.done', { number: result.value.data.zNumber ?? '' }))
@@ -39,7 +41,6 @@ export function PrevDayGate({ gate, onContinue, onClosed }: PrevDayGateProps) {
     }
     const orders = result.error.params?.['orders']
     if (result.error.code === 'open_orders_exist' && Array.isArray(orders)) setBlocking(orders as BlockingOrder[])
-    else toast.error(errorMessage(result.error))
   }
 
   return (
@@ -61,11 +62,9 @@ export function PrevDayGate({ gate, onContinue, onClosed }: PrevDayGateProps) {
         )}
         {!canClose && <p className="warn-text">{t('till.gate.needManager')}</p>}
         <div className="stack">
-          {canClose && (
-            <Button size="lg" block onClick={() => void close()} disabled={busy} data-testid="gate-close-day">
-              {t('till.gate.close')}
-            </Button>
-          )}
+          <Button size="lg" block onClick={() => void close()} disabled={busy} data-testid="gate-close-day">
+            {t('till.gate.close')}
+          </Button>
           {blocking.length > 0 && (
             <Button size="lg" variant="secondary" block onClick={onContinue}>
               {t('till.gate.finishOrders')}
