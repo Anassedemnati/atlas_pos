@@ -106,7 +106,8 @@ export function createDiscountUseCases(ctx: Sales): DiscountUseCases {
     const own = approvalsAfterOwnDiscount(approvalsOf(order), session, after, change)
     const { over } = checkDiscountLimit(session, gate, after, own)
     const viaManager = over || !isLimited(session)
-    const approvals = viaManager ? approvalsAfterApprovedDiscount(approvalsOf(order), session, after, change) : own
+    const before = { lines: order.lines, discount: order.discount }
+    const approvals = viaManager ? approvalsAfterApprovedDiscount(approvalsOf(order), session, before, after, change) : own
     if (after.changed) ctx.orders.updateLine(tx, after.changed)
     order.discount = after.discount
     applyApprovals(order, approvals)

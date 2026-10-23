@@ -19,7 +19,7 @@
     "build": "electron-vite build",
     "boot-check": "node scripts/boot-check.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.json && tsc --noEmit -p tests/tsconfig.json",
-    "test": "vitest run",
+    "test": "vitest run --exclude 'tests/integration/crash/**' && vitest run tests/integration/crash",
     "test:watch": "vitest",
     "e2e": "npm run build && playwright test",
     "dist:win": "npm run build && electron-builder --win --publish never",

@@ -305,16 +305,26 @@ export function approvalsAfterOwnDiscount(
   return { ...kept, ownGrantBp: ownGrantAfter(session, kept, discountFigures(after.lines, after.discount)) }
 }
 
+/** What a state takes off beyond the allowance the order gives `session` under `approvals`; negative when within it. */
+const gapCents = (session: Session, approvals: Approvals, state: { lines: OrderLine[]; discount: Discount | null }): number => {
+  const figures = discountFigures(state.lines, state.discount)
+  return figures.discountCents - allowanceCents(session, approvals, figures)
+}
+
 /**
  * What the order carries once a manager passed the discount `session` set (an unlimited session, or a
  * token the gate spends), rules 2 and 5. After the clearing of rule 5: a 'pct' ticket discount of `B`
  * approves the ticket percentage beyond the staff percentage in force, `B − staffBpInForce`, never less
- * than before; any other setter adds to the budget what the state takes off beyond the allowance the
- * order already gives `session`. No staff authority is recorded by a token pass.
+ * than before; any other setter adds to the budget the gap the setter itself caused,
+ * `max(0, gap(after) − max(0, gap(before)))`, both gaps under the same stored values and the same
+ * session: a no-op, a removal or a change already covered adds 0, and a gap that was there before the
+ * setter (a manager's own voids, a token pass of a smaller limit) is not booked by a setter that did not
+ * cause it. No staff authority is recorded by a token pass.
  */
 export function approvalsAfterApprovedDiscount(
   previous: Approvals,
   session: Session,
+  before: { lines: OrderLine[]; discount: Discount | null },
   after: { lines: OrderLine[]; discount: Discount | null },
   change: 'ticket' | 'line'
 ): Approvals {
@@ -323,7 +333,8 @@ export function approvalsAfterApprovedDiscount(
     const beyondStaff = after.discount.bp - staffBpInForce(session, kept)
     return { ...kept, approvedTicketBp: Math.max(kept.approvedTicketBp, beyondStaff) }
   }
-  return budgetRaised(session, kept, discountFigures(after.lines, after.discount))
+  const caused = gapCents(session, kept, after) - Math.max(0, gapCents(session, kept, before))
+  return { ...kept, approvedCents: kept.approvedCents + Math.max(0, caused) }
 }
 
 /**

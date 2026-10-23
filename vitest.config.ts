@@ -7,6 +7,9 @@ export default defineConfig({
   },
   test: {
     include: ['tests/unit/**/*.test.{ts,tsx}', 'tests/integration/**/*.test.{ts,tsx}'],
-    environment: 'node'
+    environment: 'node',
+    // The crash harness (50 kills) runs alone after the rest (see `npm test`); under load a sub-second test
+    // can still take several seconds, so the default 5 s is too tight.
+    testTimeout: 15000
   }
 })

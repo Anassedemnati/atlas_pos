@@ -281,6 +281,36 @@ describe('orders: the additive discount allowance', () => {
       expect(ok(h.tickets.closeOrder(h.cashier, x3.id)).snapshot.totals).toMatchObject({ grossCents: 250000, totalCents: 225000 })
     })
 
+    it('a manager setter books only the gap it caused: a no-op after a cashier token pass (T1d, T1e) or after manager voids (T5b) mints nothing', async () => {
+      const steak = product('steak', 50000)
+      const ten = () => order(h.cashier, ...Array<string>(10).fill(steak))
+      // T1d: the cashier's PIN-approved 20 % ticket amount on 5 000,00 records 499,90 beyond her 500,00 and ten
+      // centimes; the manager removing a discount that is not there changes no gap, so books nothing.
+      const t1 = ten()
+      ok(h.orders.setTicketDiscount(h.cashier, t1.id, amount(100000), ok(await overrideToken())))
+      expect(approvalsOf(t1.id)).toEqual({ own: 0, bp: 0, cents: 49990 })
+      expect(ok(h.orders.setLineDiscount(h.manager, t1.id, t1.lines[2]!.id, null))).toMatchObject({ approvedCents: 49990 })
+      // 1 000,00 off 4 500,00 against 450,00 + 9 centimes + 499,90: the void is refused; the order closes at the 20 % approved.
+      expect(h.orders.voidLine(h.cashier, t1.id, t1.lines[2]!.id, '')).toMatchObject(over(100000, 94999))
+      // T1e: the waiter (0 %) neither: 1 000,00 against 9 centimes + 499,90 for her, and 10 + 499,90 at close.
+      expect(h.orders.voidLine(h.waiter, t1.id, t1.lines[2]!.id, '')).toMatchObject(over(100000, 49999))
+      payAll(h.cashier, t1.id)
+      expect(h.tickets.closeOrder(h.waiter, t1.id)).toMatchObject(over(100000, 50000))
+      expect(ok(h.tickets.closeOrder(h.cashier, t1.id)).snapshot.totals).toMatchObject({ grossCents: 500000, totalCents: 400000 })
+      // T5b: the cashier's own 500,00 on steak 1; the manager voids eight steaks (records nothing: 500,00 off
+      // 1 000,00 is beyond the cashier now), then removes a discount steak 2 does not have: that gap was there
+      // before the setter, so nothing is booked; the cashier can neither void steak 2 nor close without a PIN.
+      const t5 = ten()
+      ok(h.orders.setLineDiscount(h.cashier, t5.id, t5.lines[0]!.id, amount(50000)))
+      for (const line of t5.lines.slice(2)) ok(h.orders.voidLine(h.manager, t5.id, line.id, ''))
+      expect(approvalsOf(t5.id)).toEqual({ own: 1000, bp: 0, cents: 0 })
+      expect(ok(h.orders.setLineDiscount(h.manager, t5.id, t5.lines[1]!.id, null))).toMatchObject({ approvedCents: 0 })
+      expect(h.orders.voidLine(h.cashier, t5.id, t5.lines[1]!.id, '')).toMatchObject(over(50000, 5001))
+      payAll(h.cashier, t5.id)
+      expect(h.tickets.closeOrder(h.cashier, t5.id)).toMatchObject(over(50000, 10001))
+      expect(ok(h.tickets.closeOrder(h.cashier, t5.id, ok(await overrideToken()))).totalCents).toBe(50000)
+    })
+
     it('X4: one PIN for 1,00 more at the own limit records about 1,00 only; the later voids to 100 % are refused', async () => {
       const steak = product('steak', 50000)
       const o = order(h.cashier, ...Array<string>(10).fill(steak))
