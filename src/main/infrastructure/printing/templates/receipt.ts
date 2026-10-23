@@ -23,20 +23,25 @@ const indent = '  '
 const orderTypeLabel = (type: TicketSnapshot['order']['type'], L: Labels): string =>
   ({ dine_in: L.dineIn, takeaway: L.takeaway, delivery: L.delivery, counter: L.counter })[type]
 
-/** One line of the ticket: quantity and name with the gross, then its modifiers, note, discount or offer. */
+/**
+ * One line of the ticket: quantity and name with the line's amount, then its modifiers and note (names only:
+ * their price is already in the amount), and for a discount or an offer a note of what was taken off. The
+ * amount is the net of the line's own discount (what it adds to the bill before the ticket discount), so the
+ * amounts of the lines add up to the subtotal, and with the ticket discount to the total.
+ */
 function lineBlocks(line: TicketLineSnapshot, lang: Lang, L: Labels): Block[] {
   const blocks: Block[] = [
-    { kind: 'row', left: `${formatQty(line.qtyMilli)} x ${pickName(line.name, lang)}`, right: formatAmount(line.grossCents) }
+    {
+      kind: 'row',
+      left: `${formatQty(line.qtyMilli)} x ${pickName(line.name, lang)}`,
+      right: formatAmount(line.grossCents - line.lineDiscountCents)
+    }
   ]
-  for (const m of line.modifiers) {
-    const name = `${indent}+ ${pickName(m.name, lang)}`
-    if (m.priceDeltaCents === 0) blocks.push({ kind: 'text', text: name })
-    else blocks.push({ kind: 'row', left: name, right: formatAmount(m.priceDeltaCents) })
-  }
+  for (const m of line.modifiers) blocks.push({ kind: 'text', text: `${indent}+ ${pickName(m.name, lang)}` })
   if (line.note) blocks.push({ kind: 'text', text: `${indent}> ${line.note}` })
   if (line.lineDiscountCents !== 0) {
     const label = line.free ? L.free : line.discount?.kind === 'pct' ? `${L.discount} ${formatRate(line.discount.bp)}` : L.discount
-    blocks.push({ kind: 'row', left: `${indent}${label}`, right: formatAmount(-line.lineDiscountCents) })
+    blocks.push({ kind: 'text', text: `${indent}${label} (${formatAmount(-line.lineDiscountCents)})` })
   }
   return blocks
 }

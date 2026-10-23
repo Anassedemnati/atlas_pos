@@ -29,7 +29,9 @@ export function receiptFontCss(): string {
       }
     }
     cached = rules.join('\n')
-  } catch {
+  } catch (error) {
+    // Printing goes on with whatever fonts the machine has; Arabic may then come out as boxes.
+    console.warn('[printing] the receipt fonts could not be read, using the system fonts', error)
     cached = ''
   }
   return cached

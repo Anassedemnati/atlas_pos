@@ -15,6 +15,8 @@ import { PermanentPrintError, type DriverJob, type PrintDoc, type PrinterRow, ty
 const LocalizedName = z.object({ fr: z.string(), ar: z.string().optional(), en: z.string().optional() })
 
 const KitchenJobPayload = z.object({
+  /** Set when the job was sent again after it may already have printed. */
+  reprint: z.boolean().optional(),
   ticket: z.object({
     order: z.object({
       type: z.enum(['dine_in', 'takeaway', 'delivery', 'counter']),
@@ -99,8 +101,10 @@ export function createJobRenderer(deps: JobRendererDeps): JobRenderer {
       }
       case 'kitchen':
       case 'kitchen-cancel': {
-        const { ticket } = payloadOf(KitchenJobPayload, job.kind, job.payload)
-        return finish(kitchenDoc(ticket.order, ticket.lines, { lang: printer.lang, cancelled: job.kind === 'kitchen-cancel', ...layout(printer) }))
+        const { ticket, reprint } = payloadOf(KitchenJobPayload, job.kind, job.payload)
+        return finish(
+          kitchenDoc(ticket.order, ticket.lines, { lang: printer.lang, cancelled: job.kind === 'kitchen-cancel', reprint: reprint === true, ...layout(printer) })
+        )
       }
       case 'drawer':
         // Only an ESC/POS printer can pulse a drawer; a system printer has nothing to do.

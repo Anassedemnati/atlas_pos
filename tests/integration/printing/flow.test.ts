@@ -207,6 +207,36 @@ describe('printing behind the use cases', () => {
     expect(paper('cuisine')).toEqual([])
   })
 
+  it('a kitchen ticket that may have printed is sent again marked RÉIMPRESSION, and an uncertain receipt is left to reprintTicket', async () => {
+    installPrinters()
+    const order = openT4()
+    add(order.id, h.fx.products.tajine)
+    ok(h.orders.addPayment(h.cashier, order.id, { methodCode: 'card', amountCents: 7000 }))
+    ok(h.orders.sendToKitchen(h.cashier, order.id))
+    const ticket = ok(h.tickets.closeOrder(h.cashier, order.id))
+    // A crash left both jobs printing.
+    h.t.db.prepare("UPDATE print_jobs SET status = 'printing', attempts = 1").run()
+    service.queue.start()
+    await settle()
+    const uncertain = service.queue.list()
+    expect(uncertain.map((j) => j.kind).sort()).toEqual(['kitchen', 'receipt'])
+    expect(paper('cuisine')).toEqual([])
+
+    const receipt = uncertain.find((j) => j.kind === 'receipt')!
+    expect(service.queue.reprintJob(receipt.id)).toMatchObject({ ok: false, error: { code: 'print_job_not_reprintable', params: { reason: 'use_ticket_reprint' } } })
+    // the cashier uses the ticket reprint (DUPLICATA, counted) instead
+    ok(h.tickets.reprintTicket(h.cashier, ticket.id))
+    await settle()
+    expect(paper('caisse')[0]).toContain('DUPLICATA')
+
+    const kitchen = uncertain.find((j) => j.kind === 'kitchen')!
+    expect(service.queue.reprintJob(kitchen.id)).toMatchObject({ ok: true })
+    await settle()
+    expect(paper('cuisine')).toHaveLength(1)
+    expect(paper('cuisine')[0]).toContain('*** RÉIMPRESSION ***')
+    expect(paper('cuisine')[0]).toContain('1 x Tajine')
+  })
+
   it('a reprint is marked DUPLICATA', async () => {
     installPrinters()
     service.queue.start()

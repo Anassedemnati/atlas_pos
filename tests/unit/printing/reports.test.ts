@@ -172,6 +172,21 @@ describe('invoiceA4Html', () => {
     expect(text).toContain(`${String(Math.trunc(sale.totals.totalCents / 100))},${String(sale.totals.totalCents % 100).padStart(2, '0')}`)
   })
 
+  it('foots: the line totals and the ticket discount add up to the total TTC, discounts written beside the line', () => {
+    const cents = (text: string): number => Math.round(Number(text.replace(/\s/g, '').replace(',', '.')) * 100)
+    const { html } = invoiceA4Html(invoice, 'fr')
+    // the main rows have four cells; the last is the line total
+    const lineTotals = [...html.matchAll(/<tr><td>.*?<\/td><td class="n">.*?<\/td><td class="n">.*?<\/td><td class="n"><bdi>([^<]+)<\/bdi><\/td><\/tr>/g)].map((m) => cents(m[1]!))
+    expect(lineTotals).toHaveLength(sale.lines.length)
+    const discount = /<td>Remise ticket<\/td><td class="n"><bdi>([^<]+)<\/bdi>/.exec(html)
+    const sum = lineTotals.reduce((n, c) => n + c, 0) + cents(discount![1]!)
+    expect(sum).toBe(sale.totals.totalCents)
+    expect(html).toContain('Remise 10 % (<bdi>-1,20</bdi>)')
+    expect(html).toMatch(/<td>Sous-total<\/td><td class="n"><bdi>[^<]+<\/bdi>/)
+    // the modifier is a name, with no amount
+    expect(html).toContain('<div class="sub"><bdi>+ Bien cuit</bdi></div>')
+  })
+
   it('is right to left in Arabic', () => {
     const { html } = invoiceA4Html(invoice, 'ar')
     expect(html).toContain('dir="rtl"')

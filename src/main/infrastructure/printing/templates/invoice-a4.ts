@@ -28,15 +28,18 @@ export function invoiceA4Html(invoice: InvoiceDoc, lang: Lang): { html: string }
   const amt = (cents: number): string => `<bdi>${formatAmount(cents)}</bdi>`
   const line = (label: string, value: string): string => (value ? `<div>${e(label)} : ${bdi(value)}</div>` : '')
 
+  // The total of a line is its net of its own discount, as on the receipt: the column adds up to the subtotal,
+  // and with the ticket discount to the total TTC.
   const rows = s.lines
     .map((l) => {
       const unit = l.unitPriceCents + l.modifiers.reduce((sum, m) => sum + m.priceDeltaCents, 0)
       const modifiers = l.modifiers.map((m) => `<div class="sub">${bdi(`+ ${pickName(m.name, lang)}`)}</div>`).join('')
+      const label = l.free ? L.free : l.discount?.kind === 'pct' ? `${L.discount} ${formatRate(l.discount.bp)}` : L.discount
       const discount =
         l.lineDiscountCents === 0
           ? ''
-          : `<tr class="sub"><td>${e(l.free ? L.free : L.discount)}</td><td></td><td></td><td class="n">${amt(-l.lineDiscountCents)}</td></tr>`
-      return `<tr><td>${bdi(pickName(l.name, lang))}${modifiers}</td><td class="n">${bdi(formatQty(l.qtyMilli))}</td><td class="n">${amt(unit)}</td><td class="n">${amt(l.grossCents)}</td></tr>${discount}`
+          : `<tr class="sub"><td colspan="4">${e(label)} (${amt(-l.lineDiscountCents)})</td></tr>`
+      return `<tr><td>${bdi(pickName(l.name, lang))}${modifiers}</td><td class="n">${bdi(formatQty(l.qtyMilli))}</td><td class="n">${amt(unit)}</td><td class="n">${amt(l.grossCents - l.lineDiscountCents)}</td></tr>${discount}`
     })
     .join('\n')
 
@@ -51,7 +54,8 @@ export function invoiceA4Html(invoice: InvoiceDoc, lang: Lang): { html: string }
   const ticketDiscount =
     s.totals.ticketDiscountCents === 0
       ? ''
-      : `<tr><td>${e(L.ticketDiscount)}</td><td class="n">${amt(-s.totals.ticketDiscountCents)}</td></tr>`
+      : `<tr><td>${e(L.subtotal)}</td><td class="n">${amt(s.totals.grossCents - s.totals.lineDiscountsCents)}</td></tr>
+<tr><td>${e(L.ticketDiscount)}</td><td class="n">${amt(-s.totals.ticketDiscountCents)}</td></tr>`
 
   const html = `<!doctype html>
 <html lang="${lang}" dir="${lang === 'ar' ? 'rtl' : 'ltr'}">

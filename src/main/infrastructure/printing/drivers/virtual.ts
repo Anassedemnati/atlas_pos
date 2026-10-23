@@ -53,7 +53,7 @@ export function createVirtualDriver(options: VirtualDriverOptions): PrinterDrive
       base = `${new Date(at + bump).toISOString().replace(/:/g, '-')}-${slug}`
       if (!(await Promise.all(files.map(([ext]) => exists(join(options.dir, `${base}.${ext}`))))).some(Boolean)) break
     }
-    for (const [ext, data] of files) await writeFile(join(options.dir, `${base}.${ext}`), data)
+    for (const [ext, data] of files) await writeFile(join(options.dir, `${base}.${ext}`), data, { flag: 'wx' })
   }
 
   return {

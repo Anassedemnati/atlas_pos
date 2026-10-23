@@ -61,22 +61,25 @@ describe('receiptDoc (text mode, 80 mm)', () => {
     expect(text).toContain('TOTAL TTC')
   })
 
-  it('shows quantity times name with the gross amount, modifiers and notes indented under it', () => {
+  it('shows quantity times name with the line amount, modifiers and notes indented under it without an amount', () => {
     const rows = paperLines(escpos(receiptDoc(rich(), OPTS)))
     const at = rows.findIndex((r) => r.startsWith('2 x Tajine poulet citron'))
     expect(at).toBeGreaterThan(-1)
+    // 2 x (70,00 + 2,00 for the cooking): the supplement is in the amount, not printed a second time
     expect(rows[at]!.endsWith('144,00')).toBe(true)
-    expect(rows[at + 1]).toMatch(/^ {2}\+ Bien cuit\s+2,00$/)
-    expect(rows[at + 2]).toMatch(/^ {2}> sans oignon$/)
+    expect(rows[at + 1]).toBe('  + Bien cuit')
+    expect(rows[at + 2]).toBe('  > sans oignon')
   })
 
-  it('shows a line discount and an offered line as negative rows under their line', () => {
+  it('prints the amount of a line after its own discount, with what was taken off written beside the name', () => {
     const rows = paperLines(escpos(receiptDoc(rich(), OPTS)))
     const tea = rows.findIndex((r) => r.startsWith('3 x Thé à la menthe'))
-    expect(rows[tea]!.endsWith('36,00')).toBe(true)
-    expect(rows[tea + 1]).toMatch(/^ {2}Remise 10 %\s+-3,60$/)
+    // 3 x 12,00 = 36,00 less 10 %
+    expect(rows[tea]!.endsWith('32,40')).toBe(true)
+    expect(rows[tea + 1]).toBe('  Remise 10 % (-3,60)')
     const coffee = rows.findIndex((r) => r.startsWith('1 x Café'))
-    expect(rows[coffee + 1]).toMatch(/^ {2}Offert\s+-10,00$/)
+    expect(rows[coffee]).toMatch(/\s0,00$/)
+    expect(rows[coffee + 1]).toBe('  Offert (-10,00)')
   })
 
   it('adds the subtotal and the ticket discount before the total when the ticket is discounted', () => {
@@ -128,6 +131,62 @@ describe('receiptDoc (text mode, 80 mm)', () => {
     expect(text).toContain('Motif : Erreur de caisse')
     expect(text).toContain('-50,00 DH')
     expect(text).toContain('Remboursement')
+  })
+
+  describe('the amounts foot', () => {
+    const cents = (text: string): number => Math.round(Number(text.replace(/\s/g, '').replace(',', '.')) * 100)
+    /** The amount ending a printed row (`... 1 234,50` or `... 1 234,50 DH`). */
+    const amountOf = (row: string): number => cents(/(?:^|\s)(-?\d{1,3}(?: \d{3})*,\d{2})(?: DH)?$/.exec(row)![1]!)
+
+    const AMOUNT_AT_END = /(?:^|\s)(-?\d{1,3}(?: \d{3})*,\d{2})(?: DH)?$/
+
+    /**
+     * What a reader adds up: every amount printed in the lines section (a modifier or discount row counts if it
+     * carries an amount) and the ticket discount. It must be the TOTAL TTC.
+     */
+    const footing = (snapshot: ReturnType<typeof rich>, widthMm: 58 | 80): { sum: number; total: number } => {
+      const rows = paperLines(escpos(receiptDoc(snapshot, { ...OPTS, widthMm })))
+      const rules = rows.flatMap((r, i) => (/^-+$/.test(r) ? [i] : []))
+      // header | ticket | lines | totals ...
+      const section = rows.slice(rules[1]! + 1, rules[2]!)
+      expect(section.filter((r) => /^\d+(,\d{3})? x /.test(r))).toHaveLength(snapshot.lines.length)
+      const amounts = section.flatMap((r) => (AMOUNT_AT_END.test(r) ? [amountOf(r)] : []))
+      const discount = rows.filter((r) => r.startsWith('Remise ticket')).reduce((n, r) => n + amountOf(r), 0)
+      return { sum: amounts.reduce((n, a) => n + a, 0) + discount, total: amountOf(rows.find((r) => r.startsWith('TOTAL TTC'))!) }
+    }
+
+    const cases: [string, () => ReturnType<typeof rich>][] = [
+      ['modifiers', () => sampleSale([{ unitPriceCents: 7000, qtyMilli: 2000, modifiers: [{ name: 'Bien cuit', deltaCents: 200 }, { name: 'Frites', deltaCents: 500 }] }, { unitPriceCents: 1200 }])],
+      ['a line discount', () => sampleSale([{ unitPriceCents: 1200, qtyMilli: 3000, discount: { kind: 'pct', bp: 1000, reason: 'x' } }, { unitPriceCents: 4550, discount: { kind: 'amount', cents: 550, reason: 'x' } }])],
+      ['a ticket discount', () => sampleSale([{ unitPriceCents: 7000 }, { unitPriceCents: 3333 }], { discount: { kind: 'pct', bp: 1250, reason: 'x' } })],
+      ['an offered item', () => sampleSale([{ unitPriceCents: 7000 }, { unitPriceCents: 1000, free: true }])],
+      ['everything at once', () => sampleSale(
+        [
+          { unitPriceCents: 7000, qtyMilli: 2000, modifiers: [{ name: 'Bien cuit', deltaCents: 200 }], discount: { kind: 'pct', bp: 500, reason: 'x' } },
+          { unitPriceCents: 1200, qtyMilli: 3000 },
+          { unitPriceCents: 1000, free: true },
+          { unitPriceCents: 6000, qtyMilli: 350 }
+        ],
+        { discount: { kind: 'amount', cents: 1234, reason: 'geste' } }
+      )],
+      ['a credit note', () => sampleCredit(sampleSale([{ unitPriceCents: 7000, modifiers: [{ name: 'Bien cuit', deltaCents: 200 }], discount: { kind: 'pct', bp: 1000, reason: 'x' } }, { unitPriceCents: 900 }], { discount: { kind: 'pct', bp: 500, reason: 'x' } }))],
+      ['the rich ticket', rich]
+    ]
+    for (const [name, make] of cases) {
+      for (const widthMm of [80, 58] as const) {
+        it(`${name}, ${widthMm} mm: the line amounts and the ticket discount add up to TOTAL TTC`, () => {
+          const { sum, total } = footing(make(), widthMm)
+          expect(sum).toBe(total)
+          expect(total).not.toBe(0)
+        })
+      }
+    }
+
+    it('the subtotal is the sum of the line amounts', () => {
+      const rows = paperLines(escpos(receiptDoc(sampleSale([{ unitPriceCents: 7000 }, { unitPriceCents: 3333, discount: { kind: 'pct', bp: 1000, reason: 'x' } }], { discount: { kind: 'pct', bp: 1000, reason: 'x' } }), OPTS)))
+      const lines = rows.filter((r) => /^\d+ x /.test(r)).reduce((n, r) => n + amountOf(r), 0)
+      expect(amountOf(rows.find((r) => r.startsWith('Sous-total'))!)).toBe(lines)
+    })
   })
 
   it('stays within the paper: no row wider than 48 columns at 80 mm, 32 at 58 mm', () => {

@@ -37,6 +37,8 @@ export interface KitchenOptions {
   paper?: boolean
   /** A cancellation: the lines are marked ANNULÉ so the kitchen stops making them. */
   cancelled?: boolean
+  /** Sent again after it may already have printed: marked RÉIMPRESSION so the kitchen does not make it twice. */
+  reprint?: boolean
 }
 
 const typeLabel = (type: OrderType, L: Labels): string =>
@@ -49,8 +51,9 @@ export function kitchenBlocks(order: KitchenOrderInfo, lines: KitchenLine[], o: 
   const blocks: Block[] = []
 
   if (o.cancelled) blocks.push({ kind: 'text', text: `*** ${L.cancelled} ***`, align: 'center', bold: true, size: big })
+  if (o.reprint) blocks.push({ kind: 'text', text: `*** ${L.reprint} ***`, align: 'center', bold: true, size: tall })
   if (order.tableLabel) blocks.push({ kind: 'text', text: `${L.table} ${order.tableLabel}`, align: 'center', bold: true, size: big })
-  if (order.orderNumber !== null) blocks.push({ kind: 'text', text: `N° ${order.orderNumber}`, align: 'center', bold: true, size: big })
+  if (order.orderNumber !== null) blocks.push({ kind: 'text', text: `${L.numberSign} ${order.orderNumber}`, align: 'center', bold: true, size: big })
   if (!order.tableLabel && order.type !== 'dine_in') {
     blocks.push({ kind: 'text', text: typeLabel(order.type, L), align: 'center', bold: true })
   }

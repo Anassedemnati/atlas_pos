@@ -58,6 +58,12 @@ describe('kitchenDoc', () => {
     expect(paperText(escpos(kitchenDoc(order, [line({ fr: 'Tajine' })], OPTS)))).not.toContain('ANNULÉ')
   })
 
+  it('marks a ticket sent again after it may have printed RÉIMPRESSION', () => {
+    const text = paperText(escpos(kitchenDoc(order, [line({ fr: 'Tajine' })], { ...OPTS, reprint: true })))
+    expect(text).toContain('*** RÉIMPRESSION ***')
+    expect(paperText(escpos(kitchenDoc(order, [line({ fr: 'Tajine' })], OPTS)))).not.toContain('RÉIMPRESSION')
+  })
+
   it('groups by course, with a heading once there is more than one', () => {
     const lines = [line({ fr: 'Salade', course: 1 }), line({ fr: 'Brochettes', course: 2 }), line({ fr: 'Eau' })]
     const rows = paperLines(escpos(kitchenDoc(order, lines, OPTS)))

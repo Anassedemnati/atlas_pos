@@ -73,6 +73,21 @@ describe('network driver', () => {
     expect(Date.now() - started).toBeLessThan(2000)
   })
 
+  it('only gives up when nothing moves: a long job that keeps flowing on a slow printer is not cut off', async () => {
+    // The printer takes 64 KB every 20 ms (about 3 MB/s, the network stack hides up to a couple of MB): the job needs
+    // longer than the 1 s limit, but nothing stands still for a second.
+    const port = await listen((socket) => {
+      socket.on('data', () => {
+        socket.pause()
+        setTimeout(() => socket.resume(), 20)
+      })
+    })
+    const job = Buffer.alloc(8 * 1024 * 1024, 0x5a)
+    const started = Date.now()
+    await createNetworkDriver(`127.0.0.1:${port}`, { timeoutMs: 1000 }).send(job)
+    expect(Date.now() - started).toBeGreaterThan(1000)
+  })
+
   it('refuses an HTML job for good', async () => {
     await expect(createNetworkDriver('127.0.0.1:9100').send({ html: 'x' })).rejects.toBeInstanceOf(PermanentPrintError)
   })

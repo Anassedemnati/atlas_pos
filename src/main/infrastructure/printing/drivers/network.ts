@@ -17,8 +17,9 @@ export function parseHostPort(address: string): { host: string; port: number } {
 
 /**
  * A network printer on raw TCP (port 9100). One connection per job; resolves once the whole job has been
- * handed to the network stack, rejects with the system error (`ECONNREFUSED`...) or `ETIMEDOUT` after
- * `timeoutMs` (5 s) if the printer does not take the data.
+ * handed to the network stack, rejects with the system error (`ECONNREFUSED`...) or `ETIMEDOUT` when nothing
+ * moves for `timeoutMs` (5 s): no connection, or a printer that stops taking the data. A long job that keeps
+ * flowing is never cut off.
  */
 export function createNetworkDriver(address: string, options: { timeoutMs?: number } = {}): PrinterDriver {
   const timeoutMs = options.timeoutMs ?? DEFAULT_NETWORK_TIMEOUT_MS
@@ -28,18 +29,18 @@ export function createNetworkDriver(address: string, options: { timeoutMs?: numb
       if (!Buffer.isBuffer(job)) return Promise.reject(new PermanentPrintError('html_not_supported', 'a network printer takes ESC/POS bytes'))
       return new Promise<void>((resolve, reject) => {
         const { host, port } = parseHostPort(address)
-        const socket = createConnection({ host, port })
+        // `timeout` is an inactivity limit, counted from the connection attempt and restarted by every write.
+        const socket = createConnection({ host, port, timeout: timeoutMs })
         let settled = false
         const finish = (error?: Error): void => {
           if (settled) return
           settled = true
-          clearTimeout(timer)
           // Everything is in the kernel's send buffer by now; closing still delivers it.
           socket.destroy()
           if (error) reject(error)
           else resolve()
         }
-        const timer = setTimeout(() => finish(Object.assign(new Error(`no answer from ${host}:${port} after ${timeoutMs} ms`), { code: 'ETIMEDOUT' })), timeoutMs)
+        socket.once('timeout', () => finish(Object.assign(new Error(`no progress with ${host}:${port} for ${timeoutMs} ms`), { code: 'ETIMEDOUT' })))
         socket.once('error', finish)
         socket.once('connect', () => socket.end(job, () => finish()))
       })

@@ -63,15 +63,23 @@ export interface PrintQueue extends PrintSpooler {
   enqueue(tx: Tx, job: PrintJob): void
   /** Turns the jobs left `printing` by a crash into `uncertain`, then starts printing what is pending. */
   start(): void
-  /** Stops picking up jobs; a job already being sent finishes. */
+  /** Stops picking up jobs; a job already being sent finishes. Each printer is worked on by its own runner. */
   stop(): void
   /** Looks for due jobs now. */
   wake(): void
-  /** Resolves when no job is being sent and none is due. */
+  /** Resolves when no job is being sent and none is due (for tests: it waits for a driver that never answers). */
   idle(): Promise<void>
   /** Jobs in these statuses, oldest first (default: the ones needing attention, `failed` and `uncertain`). */
   list(statuses?: PrintStatus[]): PrintJobInfo[]
-  /** Puts a failed, uncertain or finished job back in the queue with fresh attempts. */
+  /**
+   * Puts a job back in the queue with fresh attempts, for what a retry may do without a person's authority:
+   * - a `failed` job (it never printed) is sent again as it was;
+   * - an `uncertain` kitchen, Z or invoice job (it may have printed) is sent again, a kitchen ticket marked
+   *   RÉIMPRESSION;
+   * - a `done` job, an `uncertain` receipt and any drawer pulse are refused (`print_job_not_reprintable`, with
+   *   `params.reason`: `printed`, `use_ticket_reprint`, `drawer`). A receipt is printed again by the
+   *   `reprintTicket` use case (DUPLICATA, counted, logged), a drawer opened by its own permissioned use case.
+   */
   reprintJob(id: string): Result<PrintJobInfo>
   /** Takes a failed or uncertain job off the list without printing it (kept as `done`, error `dismissed`). */
   dismissJob(id: string): Result<PrintJobInfo>
@@ -111,7 +119,11 @@ function describeError(error: unknown): string {
   return text.length > MAX_ERROR_LENGTH ? `${text.slice(0, MAX_ERROR_LENGTH - 1)}…` : text
 }
 
-const appError = (code: string): AppError => ({ code, messageKey: `errors.${code}` })
+const appError = (code: string, params?: Record<string, unknown>): AppError => ({
+  code,
+  messageKey: `errors.${code}`,
+  ...(params ? { params } : {})
+})
 
 export function createPrintQueue(deps: PrintQueueDeps): PrintQueue {
   const { db, clock, eventBus } = deps
@@ -122,13 +134,15 @@ export function createPrintQueue(deps: PrintQueueDeps): PrintQueue {
   const maxAttempts = backoff.length + 1
 
   let started = false
-  let running: Promise<void> | null = null
-  let rerun = false
+  /** One runner per printer with work: a printer that is slow or hung holds up only itself. */
+  const runners = new Map<string, Promise<void>>()
+  /** Printers that were woken while their runner was busy: the runner looks again when it ends. */
+  const woken = new Set<string>()
   /** A wake announced by an event, waiting for the next turn of the event loop (see `wakeSoon`). */
   let wakeQueued = false
   let timer: (() => void) | null = null
   let unsubscribe: (() => void) | null = null
-  /** The earliest time a failed job waits for, as the last pass saw it. */
+  /** The earliest time a failed job waits for, as the runners that gave way to it saw it. */
   let nextRetryAt: number | null = null
 
   const nowIso = (): string => clock.now().toISOString()
@@ -219,13 +233,17 @@ export function createPrintQueue(deps: PrintQueueDeps): PrintQueue {
     db.prepare('UPDATE print_jobs SET status = ?, attempts = ?, error = ?, updated_at = ? WHERE id = ?').run(status, attempts, error, nowIso(), id)
   }
 
-  async function attempt(job: DbJob): Promise<void> {
+  /**
+   * Sends the job. Resolves false when its state could not even be written (the database is failing): nothing
+   * was sent, the job is still waiting, and the runner must stop instead of trying again at once.
+   */
+  async function attempt(job: DbJob): Promise<boolean> {
     const attempts = job.attempts + 1
     try {
       setState(job.id, 'printing', attempts, null)
     } catch (error) {
       log('print.state_failed', { jobId: job.id, message: describeError(error) })
-      return
+      return false
     }
     announce(job.printer_id, 'printing')
 
@@ -256,28 +274,39 @@ export function createPrintQueue(deps: PrintQueueDeps): PrintQueue {
         announce(job.printer_id, 'failed')
       }
     } catch (error) {
+      // Left `printing`: after a restart it is `uncertain`, which is what it is.
       log('print.state_failed', { jobId: job.id, message: describeError(error) })
     }
+    return true
   }
 
-  /** Sends the printer's jobs one at a time, oldest first, until the next one is not due. */
+  /** Sends one printer's jobs, oldest first, until the next one is not due (or the database fails). */
   async function runPrinter(printerId: string): Promise<void> {
-    while (started) {
-      const head = headOf(printerId)
-      if (!head) return
-      if (head.due > clock.now().getTime()) {
-        nextRetryAt = nextRetryAt === null ? head.due : Math.min(nextRetryAt, head.due)
-        return
+    try {
+      while (started) {
+        const head = headOf(printerId)
+        if (!head) return
+        if (head.due > clock.now().getTime()) {
+          nextRetryAt = nextRetryAt === null ? head.due : Math.min(nextRetryAt, head.due)
+          return
+        }
+        // The poll tries again later.
+        if (!(await attempt(head.job))) return
       }
-      await attempt(head.job)
+    } catch (error) {
+      log('print.worker_failed', { printerId, message: describeError(error) })
     }
   }
 
-  async function drain(): Promise<void> {
-    nextRetryAt = null
-    const printers = db.prepare("SELECT DISTINCT printer_id AS id FROM print_jobs WHERE status IN ('pending', 'failed')").all() as { id: string }[]
-    // Printers run side by side: one that is down or slow holds up only its own jobs.
-    await Promise.all(printers.map((p) => runPrinter(p.id)))
+  function startRunner(printerId: string): void {
+    const runner: Promise<void> = runPrinter(printerId).finally(() => {
+      if (runners.get(printerId) === runner) runners.delete(printerId)
+      // Woken while busy: look again, but only when someone asked, so a runner that stopped on a failing
+      // database does not restart itself in a loop.
+      if (woken.delete(printerId) && started) startRunner(printerId)
+      else if (started) armTimer()
+    })
+    runners.set(printerId, runner)
   }
 
   function armTimer(): void {
@@ -285,25 +314,24 @@ export function createPrintQueue(deps: PrintQueueDeps): PrintQueue {
     const wait = nextRetryAt === null ? pollMs : Math.min(pollMs, Math.max(0, nextRetryAt - clock.now().getTime()))
     timer = schedule(() => {
       timer = null
+      nextRetryAt = null
       wake()
     }, wait)
   }
 
+  /** Starts a runner for each printer with work waiting and none running; tells a busy one to look again. */
   function wake(): void {
     if (!started) return
-    if (running) {
-      rerun = true
-      return
+    try {
+      const printers = db.prepare("SELECT DISTINCT printer_id AS id FROM print_jobs WHERE status IN ('pending', 'failed')").all() as { id: string }[]
+      for (const { id } of printers) {
+        if (runners.has(id)) woken.add(id)
+        else startRunner(id)
+      }
+    } catch (error) {
+      log('print.worker_failed', { message: describeError(error) })
     }
-    rerun = false
-    running = drain()
-      .catch((error: unknown) => log('print.worker_failed', { message: describeError(error) }))
-      .finally(() => {
-        running = null
-        if (!started) return
-        if (rerun) wake()
-        else armTimer()
-      })
+    armTimer()
   }
 
   /**
@@ -369,7 +397,7 @@ export function createPrintQueue(deps: PrintQueueDeps): PrintQueue {
 
     async idle() {
       for (;;) {
-        if (running) await running
+        if (runners.size > 0) await Promise.allSettled([...runners.values()])
         else if (wakeQueued) await new Promise<void>((resolve) => setImmediate(resolve))
         else return
       }
@@ -390,7 +418,26 @@ export function createPrintQueue(deps: PrintQueueDeps): PrintQueue {
       const job = infoOf(id)
       if (!job) return { ok: false, error: appError('print_job_not_found') }
       if (job.status === 'pending' || job.status === 'printing') return { ok: false, error: appError('print_job_busy') }
-      setState(id, 'pending', 0, null)
+      const refuse = (reason: string): Result<PrintJobInfo> => ({ ok: false, error: appError('print_job_not_reprintable', { reason }) })
+      if (job.kind === 'drawer') return refuse('drawer')
+      if (job.status === 'done') return refuse('printed')
+      if (job.status === 'uncertain' && job.kind === 'receipt') return refuse('use_ticket_reprint')
+
+      db.transaction(() => {
+        if (job.status === 'uncertain' && isKitchen(job.kind)) {
+          // It may have printed: the copy says so.
+          const row = db.prepare('SELECT payload_json FROM print_jobs WHERE id = ?').get(id) as { payload_json: string }
+          let payload: unknown
+          try {
+            payload = JSON.parse(row.payload_json)
+          } catch {
+            payload = null
+          }
+          const marked = { ...(typeof payload === 'object' && payload !== null ? payload : {}), reprint: true }
+          db.prepare('UPDATE print_jobs SET payload_json = ? WHERE id = ?').run(JSON.stringify(marked), id)
+        }
+        setState(id, 'pending', 0, null)
+      })()
       const value = infoOf(id)!
       announce(job.printerId, 'pending')
       wake()
