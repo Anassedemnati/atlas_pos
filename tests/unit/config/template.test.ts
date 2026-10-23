@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { PERMISSIONS } from '@shared/permissions'
 import { defaultOf } from '../../../src/main/domain/config/settings-registry'
 import {
+  LocalizedNameSchema,
+  NAME_MAX_LENGTH,
   TEMPLATE_IDS,
   TemplateSchema,
   loadTemplate,
@@ -382,5 +384,29 @@ describe('business templates', () => {
       const misspelled = { ...base(), products: base().products.map((p) => ({ ...p, price_cent: 1 })) }
       expect(TemplateSchema.safeParse(misspelled).success).toBe(false)
     })
+  })
+})
+
+describe('names', () => {
+  it('may be 200 characters long in every language, not 201', () => {
+    expect(NAME_MAX_LENGTH).toBe(200)
+    for (const lang of ['fr', 'ar', 'en'] as const) {
+      expect(LocalizedNameSchema.safeParse({ fr: 'a', [lang]: 'é'.repeat(200) }).success).toBe(true)
+      expect(LocalizedNameSchema.safeParse({ fr: 'a', [lang]: 'é'.repeat(201) }).success).toBe(false)
+    }
+  })
+
+  it('refuses a template whose product, category or modifier name is over the limit', () => {
+    const long = 'é'.repeat(201)
+    const product = loadTemplate('retail')
+    product.products[0]!.name.fr = long
+    expect(TemplateSchema.safeParse(product).success).toBe(false)
+    const category = loadTemplate('retail')
+    category.categories[0]!.name.ar = long
+    expect(TemplateSchema.safeParse(category).success).toBe(false)
+  })
+
+  it('every shipped template stays within the limit', () => {
+    for (const t of all()) expect(TemplateSchema.safeParse(t).success).toBe(true)
   })
 })

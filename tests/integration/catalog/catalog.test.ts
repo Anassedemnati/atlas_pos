@@ -194,6 +194,8 @@ describe('catalog use cases', () => {
       ['a negative price', { priceCents: -1 }, 'priceCents'],
       ['a fractional price', { priceCents: 7.5 }, 'priceCents'],
       ['a VAT rate over 100 %', { vatBp: 10001 }, 'vatBp'],
+      ['a name over 200 characters', { name: { fr: 'é'.repeat(201) } }, 'name.fr'],
+      ['an Arabic name over 200 characters', { name: { fr: 'a', ar: 'ع'.repeat(201) } }, 'name.ar'],
       ['a barcode with a space inside', { barcode: 'ab cd' }, 'barcode'],
       ['a barcode over 32 characters', { barcode: '1'.repeat(33) }, 'barcode'],
       ['a colour that is not #RRGGBB', { color: '#12345' }, 'color'],
@@ -227,17 +229,37 @@ describe('catalog use cases', () => {
       expect(find(id).modifierGroupIds).toEqual([g2])
     })
 
-    it('logs the creation with the stock change, and announces catalog.changed once per call', () => {
+    it('logs the creation with its stock, and announces catalog.changed once per call', () => {
       const c = category()
       h.published.length = 0
       const id = product(c, { stockTracked: true, stockMilli: 5000 })
-      ok(h.service.saveProduct(h.manager, { id, categoryId: c, name: { fr: 'Eau' }, priceCents: 750, vatBp: 2000, stockMilli: 3000 }))
+      ok(h.service.saveProduct(h.manager, { id, categoryId: c, name: { fr: 'Eau' }, priceCents: 750, vatBp: 2000 }))
       const logged = h.eventRows().filter((e) => e.type === 'product.saved')
       expect(logged.map((e) => JSON.parse(e.data_json!))).toEqual([
         { created: true, stockMilli: 5000 },
-        { created: false, stockMilli: 3000, previousStockMilli: 5000 }
+        { created: false, stockMilli: 5000 }
       ])
       expect(h.published).toHaveLength(2)
+    })
+
+    it('ignores stockMilli on an edit of a product that already tracks its stock: only adjustStock moves it', () => {
+      const c = category()
+      const id = product(c, { stockTracked: true, stockMilli: 5000 })
+      ok(h.service.adjustStock(h.manager, id, -1000, 'casse'))
+      // a form opened before the adjustment saves the quantity it showed
+      ok(h.service.saveProduct(h.manager, { id, categoryId: c, name: { fr: 'Eau' }, priceCents: 800, vatBp: 2000, stockMilli: 5000, lowStockMilli: 500 }))
+      expect(find(id)).toMatchObject({ stockMilli: 4000, priceCents: 800, lowStockMilli: 500 })
+      ok(h.service.saveProduct(h.manager, { id, categoryId: c, name: { fr: 'Eau' }, priceCents: 800, vatBp: 2000, stockTracked: false, stockMilli: 9000 }))
+      expect(find(id)).toMatchObject({ stockTracked: false, stockMilli: 4000 })
+    })
+
+    it('takes the starting stock of a product that starts being tracked, and logs the change', () => {
+      const c = category()
+      const id = product(c)
+      expect(find(id)).toMatchObject({ stockTracked: false, stockMilli: 0 })
+      ok(h.service.saveProduct(h.manager, { id, categoryId: c, name: { fr: 'Eau' }, priceCents: 750, vatBp: 2000, stockTracked: true, stockMilli: 8000 }))
+      expect(find(id)).toMatchObject({ stockTracked: true, stockMilli: 8000 })
+      expect(JSON.parse(h.eventRows().at(-1)!.data_json!)).toEqual({ created: false, stockMilli: 8000, previousStockMilli: 0 })
     })
   })
 
@@ -390,11 +412,6 @@ describe('catalog use cases', () => {
       ['a course without item', () => ({ courses: [{ name: { fr: 'x' }, items: [] }] }), 'courses.0.items'],
       ['an unknown item', () => ({ courses: [{ name: { fr: 'x' }, items: [{ productId: 'nope' }] }] }), 'courses.0.items.0.productId'],
       [
-        'the menu product among its own items',
-        (_a: string, menu: string) => ({ courses: [{ name: { fr: 'x' }, items: [{ productId: menu }] }] }),
-        'courses.0.items.0.productId'
-      ],
-      [
         'the same item twice in a course',
         (a: string) => ({ courses: [{ name: { fr: 'x' }, items: [{ productId: a }, { productId: a }] }] }),
         'courses.0.items.1.productId'
@@ -412,6 +429,54 @@ describe('catalog use cases', () => {
       const r = h.service.saveMenu(h.manager, { productId: menu, ...make(a, menu) } as MenuInput)
       expect(r).toMatchObject({ ok: false, error: { code: 'invalid_input', params: { field } } })
       expect(h.count('menus')).toBe(0)
+    })
+
+    describe('cycles', () => {
+      const setup = () => {
+        const c = category()
+        const [a, b, d, plain] = ['A', 'B', 'D', 'Plain'].map((n) => product(c, { name: { fr: n } })) as [string, string, string, string]
+        const menu = (productId: string, ...items: string[]) =>
+          h.service.saveMenu(h.manager, { productId, courses: [{ name: { fr: 'x' }, items: items.map((i) => ({ productId: i })) }] })
+        return { a, b, d, plain, menu }
+      }
+      const cycle = (field: string) => ({ ok: false, error: { code: 'menu_cycle', params: { field } } })
+
+      it('refuses a menu that offers itself', () => {
+        const { a, menu } = setup()
+        expect(menu(a, a)).toMatchObject(cycle('courses.0.items.0.productId'))
+        expect(h.count('menus')).toBe(0)
+      })
+
+      it('refuses a menu that offers a product whose menu offers it back', () => {
+        const { a, b, menu } = setup()
+        ok(menu(a, b))
+        expect(menu(b, a)).toMatchObject(cycle('courses.0.items.0.productId'))
+        expect(h.count('menus')).toBe(1)
+      })
+
+      it('refuses a longer chain, and names the item that closes it', () => {
+        const { a, b, d, plain, menu } = setup()
+        ok(menu(a, b))
+        ok(menu(b, d))
+        expect(menu(d, plain, a)).toMatchObject(cycle('courses.0.items.1.productId'))
+      })
+
+      it('accepts a menu that offers a menu, and a diamond (two paths to one product)', () => {
+        const { a, b, d, plain, menu } = setup()
+        ok(menu(b, plain))
+        ok(menu(d, plain))
+        ok(menu(a, b, d))
+        expect(h.count('menus')).toBe(3)
+      })
+
+      it('judges a re-save by the menu it replaces: dropping the item that made the loop is fine', () => {
+        const { a, b, plain, menu } = setup()
+        ok(menu(a, b))
+        ok(menu(b, plain))
+        ok(menu(a, plain))
+        ok(menu(b, a))
+        expect(h.count('menus')).toBe(2)
+      })
     })
 
     it('refuses an unknown menu product', () => {
@@ -438,6 +503,22 @@ describe('catalog use cases', () => {
       ok(h.service.reorder(h.manager, 'modifierGroup', [g2, g1]))
       expect(catalog().modifierGroups.map((x) => x.name.fr)).toEqual(['g2', 'g1'])
       expect(h.eventRows().filter((e) => e.type === 'catalog.reordered')).toHaveLength(3)
+    })
+
+    it('puts the ones not listed after the listed ones, in the order they had: no two share a sort', () => {
+      const ids = ['A', 'B', 'C', 'D', 'E'].map((n) => category(n))
+      ok(h.service.reorder(h.manager, 'category', [ids[3]!, ids[1]!]))
+      expect(catalog().categories.map((x) => [x.name.fr, x.sort])).toEqual([
+        ['D', 0],
+        ['B', 1],
+        ['A', 2],
+        ['C', 3],
+        ['E', 4]
+      ])
+      // a second partial reorder keeps counting from the new order
+      ok(h.service.reorder(h.manager, 'category', [ids[4]!]))
+      expect(catalog().categories.map((x) => x.name.fr)).toEqual(['E', 'D', 'B', 'A', 'C'])
+      expect(new Set(catalog().categories.map((x) => x.sort)).size).toBe(5)
     })
 
     it('refuses an unknown or repeated id, an unknown kind, and changes nothing', () => {
@@ -512,6 +593,44 @@ describe('catalog use cases', () => {
       expect(h.service.quickCreateProduct(h.manager, '612', 'B', 100, 'nope')).toMatchObject({ ok: false, error: { params: { field: 'categoryId' } } })
       expect(h.service.quickCreateProduct(h.manager, '', 'B', 100, c)).toMatchObject({ ok: false, error: { params: { field: 'barcode' } } })
       expect(h.count('products')).toBe(1)
+    })
+  })
+
+  describe('VAT rates (the vat.rates setting)', () => {
+    it('refuses a rate that is not configured: invalid_vat, with the rates that are', () => {
+      const c = category()
+      const r = h.service.saveProduct(h.manager, { categoryId: c, name: { fr: 'X' }, priceCents: 100, vatBp: 1500 })
+      expect(r).toMatchObject({
+        ok: false,
+        error: { code: 'invalid_vat', params: { field: 'vatBp', vatBp: 1500, allowed: [2000, 1400, 1000, 700, 0] } }
+      })
+      expect(h.count('products')).toBe(0)
+      expect(h.published).toEqual([{ type: 'catalog.changed' }])
+    })
+
+    it('reads the setting at every call: a rate the technician adds is accepted at once, one removed is refused', () => {
+      const c = category()
+      h.setVatRates([2000, 550, 0])
+      const id = product(c, { vatBp: 550 })
+      expect(find(id).vatBp).toBe(550)
+      expect(code(h.service.saveProduct(h.manager, { categoryId: c, name: { fr: 'Y' }, priceCents: 1, vatBp: 1400 }))).toBe('invalid_vat')
+      h.setVatRates([2000, 1400])
+      // saving the product again at its old rate is refused too: a rate that is gone is gone
+      expect(code(h.service.saveProduct(h.manager, { id, categoryId: c, name: { fr: 'Eau' }, priceCents: 1, vatBp: 550 }))).toBe('invalid_vat')
+      ok(h.service.saveProduct(h.manager, { id, categoryId: c, name: { fr: 'Eau' }, priceCents: 1, vatBp: 1400 }))
+    })
+
+    it.each([
+      [[2000, 1400, 1000, 700, 0], 2000],
+      [[550, 0, 2000], 2000],
+      [[1400, 700], 1400],
+      [[550, 0], 550],
+      [[0], 0]
+    ])('quickCreateProduct with the rates %j takes %i', (rates, expected) => {
+      const c = category()
+      h.setVatRates(rates)
+      const { id } = ok(h.service.quickCreateProduct(h.manager, '611', 'Biscuits', 1250, c))
+      expect(find(id).vatBp).toBe(expected)
     })
   })
 

@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx'
 import type { ImportError, ImportRow, ParsedCatalogSheet } from '@shared/dto'
+import { defaultOf } from '../../domain/config/settings-registry'
 import {
   REQUIRED_COLUMNS,
   SHEET_COLUMNS,
@@ -10,17 +11,23 @@ import {
   type Cell,
   type SheetColumn
 } from '../../domain/catalog/import-row'
+import { assertZipWithinLimits, ZipTooLargeError } from './zip-guard'
 
 // Reading and writing the catalogue as an Excel (.xlsx) or CSV file. A sheet is hostile input: the
-// size and the number of rows are capped, the format is chosen from the file name (never guessed
-// from the content), formulas are never evaluated (the stored value is read), and a file that
-// cannot be read is an `errors` entry, never an exception.
+// size, the rows, the columns and what a workbook expands to are capped, the format is chosen from the
+// file name (never guessed from the content), formulas are never evaluated (the stored value is
+// read), and a file that cannot be read is an `errors` entry, never an exception.
 
 export const MAX_IMPORT_BYTES = 5 * 1024 * 1024
 /** Product rows (blank rows and the header do not count). */
 export const MAX_IMPORT_ROWS = 5000
 /** Physical rows read at most: a sheet longer than this is refused whatever it holds. */
 const MAX_SHEET_ROWS = 20_000
+/**
+ * Columns read at most, counting from the first used one (there are ten that matter). A workbook
+ * states its own size: one that claims `A1:XFD5001` would otherwise be expanded to 82 million cells.
+ */
+const MAX_SHEET_COLUMNS = 64
 
 type Format = 'xlsx' | 'csv'
 
@@ -128,6 +135,8 @@ const ZIP_MAGIC = [0x50, 0x4b, 0x03, 0x04]
 function readXlsx(buf: Uint8Array): Grid {
   // SheetJS reads anything as a workbook (even plain text); only a zip is an .xlsx.
   if (buf.length < 4 || ZIP_MAGIC.some((byte, i) => buf[i] !== byte)) throw new Error('not a zip file')
+  // 5 MB of zip can expand to gigabytes: find out before SheetJS inflates it.
+  assertZipWithinLimits(buf)
   const workbook = XLSX.read(buf, {
     type: 'buffer',
     cellFormula: false,
@@ -144,9 +153,13 @@ function readXlsx(buf: Uint8Array): Grid {
   if (!sheet) throw new Error('no sheet')
   const ref = sheet['!ref']
   if (!ref) return { firstRow: 1, rows: [], truncated: false }
+  // `sheet_to_json` makes every row as wide as the range says, and the range is whatever the file claims.
+  const range = XLSX.utils.decode_range(ref)
+  range.e.c = Math.min(range.e.c, range.s.c + MAX_SHEET_COLUMNS - 1)
+  sheet['!ref'] = XLSX.utils.encode_range(range)
   const rows = XLSX.utils.sheet_to_json<Cell[]>(sheet, { header: 1, raw: true, defval: '', blankrows: true })
   // SheetJS keeps the full range in `!fullref` when `sheetRows` cut the sheet short.
-  return { firstRow: XLSX.utils.decode_range(ref).s.r + 1, rows, truncated: sheet['!fullref'] !== undefined }
+  return { firstRow: range.s.r + 1, rows, truncated: sheet['!fullref'] !== undefined }
 }
 
 // Reading ------------------------------------------------------------------------------------------
@@ -162,12 +175,21 @@ function formatOf(fileName: string): Format | undefined {
  * Reads a catalogue sheet. `.xlsx` uses the first sheet, `.csv` is UTF-8 (with or without BOM) and
  * `;`, `,` or tab delimited. The first non-blank row is the header; columns are found by name
  * (`categorie`, `name_fr`, `name_ar`, `name_en`, `prix`, `tva`, `code_barres`, `au_poids`, `stock`,
- * `couleur`), extra columns are ignored. Blank rows are skipped. `rows` holds the rows that have no
- * problem; every problem is in `errors` with its sheet row (header = 1). A file that is refused as a
- * whole (`errors.import_too_large`, `errors.import_unreadable`) has `row` 0 and `field` `file`; a
- * missing required column is `errors.import_missing_column` on the header row.
+ * `couleur`), extra columns are ignored. Blank rows are skipped. `allowedVatBp` is the `vat.rates`
+ * setting (basis points; the function stays pure): `tva` is the percentage of one of them, `20` or `5,5`.
+ *
+ * `rows` holds the rows that have no problem; every problem is in `errors` with its sheet row
+ * (header = 1). **A caller must not apply the rows while `errors` is not empty**: the file is the
+ * user's, and half of it would silently be left out. A file that is refused as a whole
+ * (`errors.import_too_large`: over 5 MB, over 5000 rows, over 20 000 physical rows, or a workbook that
+ * expands past 50 MB; `errors.import_unreadable`) has `row` 0 and `field` `file`; a missing required
+ * column is `errors.import_missing_column` on the header row. Never throws.
  */
-export function parseCatalogSheet(buf: Uint8Array, fileName: string): ParsedCatalogSheet {
+export function parseCatalogSheet(
+  buf: Uint8Array,
+  fileName: string,
+  allowedVatBp: readonly number[] = defaultOf('vat.rates')
+): ParsedCatalogSheet {
   if (buf.byteLength > MAX_IMPORT_BYTES) return fileError('errors.import_too_large')
   const format = formatOf(fileName)
   if (!format) return fileError('errors.import_unreadable')
@@ -175,14 +197,14 @@ export function parseCatalogSheet(buf: Uint8Array, fileName: string): ParsedCata
   let grid: Grid
   try {
     grid = format === 'xlsx' ? readXlsx(buf) : readCsv(buf)
-  } catch {
-    return fileError('errors.import_unreadable')
+  } catch (error) {
+    return fileError(error instanceof ZipTooLargeError ? 'errors.import_too_large' : 'errors.import_unreadable')
   }
   if (grid.truncated) return fileError('errors.import_too_large')
-  return interpret(grid)
+  return interpret(grid, allowedVatBp)
 }
 
-function interpret(grid: Grid): ParsedCatalogSheet {
+function interpret(grid: Grid, allowedVatBp: readonly number[]): ParsedCatalogSheet {
   const headerIndex = grid.rows.findIndex((cells) => !isBlank(cells))
   if (headerIndex < 0) return { rows: [], errors: [] }
   const headerRow = grid.firstRow + headerIndex
@@ -210,7 +232,7 @@ function interpret(grid: Grid): ParsedCatalogSheet {
   const errors: ImportError[] = []
   const barcodes = new Set<string>()
   for (const { cells, row } of data) {
-    const parsed = parseRowCells((column) => cells[columns.get(column) ?? -1], row)
+    const parsed = parseRowCells((column) => cells[columns.get(column) ?? -1], row, allowedVatBp)
     for (const { field, messageKey } of parsed.failures) errors.push({ row, field, messageKey })
     if (parsed.barcode !== undefined) {
       if (barcodes.has(parsed.barcode)) {

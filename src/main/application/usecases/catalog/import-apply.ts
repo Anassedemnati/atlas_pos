@@ -6,6 +6,12 @@ import { matchRows } from '../../../domain/catalog/match'
 import type { CatalogRepo } from '../../../infrastructure/db/repos/catalog-repo'
 import type { Tx } from '../../../infrastructure/db/uow'
 
+export interface ImportResult {
+  summary: ImportSummary
+  /** French names of the products a `replace` import removed or made inactive (for the audit trail). */
+  removed: { deleted: string[]; deactivated: string[] }
+}
+
 const localized = (row: ImportRow, existing: LocalizedName | undefined, replace: boolean): LocalizedName => {
   // merge: an empty cell leaves the translation as it is; replace: the sheet is the whole truth.
   const ar = row.nameAr ?? (replace ? undefined : existing?.ar)
@@ -24,9 +30,10 @@ const localized = (row: ImportRow, existing: LocalizedName | undefined, replace:
  * products and categories the file does not list go: removed, or made inactive when a product was
  * sold or is in a set menu (a category that still holds such a product is made inactive).
  */
-export function applyImport(tx: Tx, repo: CatalogRepo, rows: ImportRow[], mode: ImportMode): ImportSummary {
+export function applyImport(tx: Tx, repo: CatalogRepo, rows: ImportRow[], mode: ImportMode): ImportResult {
   const replace = mode === 'replace'
   const summary: ImportSummary = { mode, categoriesCreated: 0, created: 0, updated: 0, deleted: 0, deactivated: 0 }
+  const removed: ImportResult['removed'] = { deleted: [], deactivated: [] }
   const categories = repo.listCategories()
   const products = repo.listProducts()
 
@@ -109,7 +116,7 @@ export function applyImport(tx: Tx, repo: CatalogRepo, rows: ImportRow[], mode: 
       summary.created++
     }
   })
-  if (!replace) return summary
+  if (!replace) return { summary, removed }
 
   // Replace: what the file does not list goes.
   const listed = new Set(idsInOrder)
@@ -120,10 +127,12 @@ export function applyImport(tx: Tx, repo: CatalogRepo, rows: ImportRow[], mode: 
       if (product.active) {
         repo.updateProduct(tx, { ...product, active: false })
         summary.deactivated++
+        removed.deactivated.push(product.name.fr)
       }
     } else {
       repo.deleteProduct(tx, product.id)
       summary.deleted++
+      removed.deleted.push(product.name.fr)
     }
   }
   repo.setSort(tx, 'product', idsInOrder)
@@ -140,5 +149,5 @@ export function applyImport(tx: Tx, repo: CatalogRepo, rows: ImportRow[], mode: 
     }
   }
   repo.setSort(tx, 'category', [...fileCategoryIds, ...others])
-  return summary
+  return { summary, removed }
 }

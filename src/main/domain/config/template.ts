@@ -19,8 +19,13 @@ export const CodeSchema = z.string().regex(/^[a-z0-9]+(?:[-_][a-z0-9]+)*$/)
 
 const Color = z.string().regex(/^#[0-9A-Fa-f]{6}$/)
 
+/** Longest name (of a product, category, modifier, course...) in characters, per language. */
+export const NAME_MAX_LENGTH = 200
+
+const nameText = text.max(NAME_MAX_LENGTH)
+
 /** French is the reference copy and always present; Arabic and English are optional. */
-export const LocalizedNameSchema = z.strictObject({ fr: text, ar: text.optional(), en: text.optional() })
+export const LocalizedNameSchema = z.strictObject({ fr: nameText, ar: nameText.optional(), en: nameText.optional() })
 
 export const CategorySchema = z.strictObject({
   code: CodeSchema,

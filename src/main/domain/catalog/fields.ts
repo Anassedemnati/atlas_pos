@@ -54,11 +54,11 @@ export const ImagePathRule = z
   .max(200)
   .regex(/^[A-Za-z0-9_-][A-Za-z0-9._-]*(?:\/[A-Za-z0-9_-][A-Za-z0-9._-]*)*$/)
 
-/** The rates a sheet may carry (`tva` column): the Moroccan rates, in basis points. */
-export const SHEET_VAT_RATES_BP: readonly number[] = [2000, 1400, 1000, 700, 0]
-
-/** Standard rate, for a product created without one (quick create at the till). */
-export const DEFAULT_VAT_BP = 2000
+/**
+ * The VAT rate of a product created without one (quick create at the till): the standard 20 % when
+ * the business has it among its `vat.rates`, else the highest rate it has.
+ */
+export const defaultVatBp = (rates: readonly number[]): number => (rates.includes(2000) ? 2000 : Math.max(...rates))
 
 /** Colour of a category the import has to create. */
 export const DEFAULT_CATEGORY_COLOR = '#0FA3A3'

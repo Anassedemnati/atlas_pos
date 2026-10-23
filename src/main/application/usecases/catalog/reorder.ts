@@ -9,7 +9,8 @@ import { logChange, parseInput } from './input'
 export interface ReorderUseCases {
   /**
    * Needs `catalog.manage`. Puts the listed categories, products or modifier groups in that order
-   * (`sort` = position). Every id must exist and none may repeat; the ones not listed keep their `sort`.
+   * (`sort` = position) and the ones not listed after them, in the order they had: no two share a
+   * `sort`. Every id must exist and none may repeat.
    */
   reorder(session: Session, kind: ReorderKind, ids: string[]): Result<true>
 }

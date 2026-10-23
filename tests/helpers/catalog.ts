@@ -4,6 +4,7 @@ import { createEventBus, type DomainEvent } from '../../src/main/application/eve
 import { createCatalogService, type CatalogService } from '../../src/main/application/usecases/catalog'
 import type { Session } from '../../src/main/domain/users/session'
 import type { Database } from '../../src/main/infrastructure/db/connection'
+import { createSettingsRepo, type SettingsRepo } from '../../src/main/infrastructure/db/repos/settings-repo'
 import { createUnitOfWork, type UnitOfWork } from '../../src/main/infrastructure/db/uow'
 import { mutableClock, type MutableClock } from './clock'
 import { tempDb, type TempDb } from './db'
@@ -13,7 +14,10 @@ export interface CatalogHarness {
   t: TempDb
   clock: MutableClock
   uow: UnitOfWork
+  settings: SettingsRepo
   service: CatalogService
+  /** The `vat.rates` setting (basis points), as a technician would set it. */
+  setVatRates(rates: number[]): void
   manager: Session
   cashier: Session
   /** Every event published on the bus, in order. */
@@ -30,11 +34,14 @@ export function catalogHarness(): CatalogHarness {
   const published: DomainEvent[] = []
   bus.subscribe('catalog.changed', (e) => published.push(e))
   const uow = createUnitOfWork(t.db, clock, bus)
+  const settings = createSettingsRepo(t.db)
   return {
     t,
     clock,
     uow,
-    service: createCatalogService({ db: t.db, uow }),
+    settings,
+    service: createCatalogService({ db: t.db, uow, settings }),
+    setVatRates: (rates) => uow.run((tx) => settings.set(tx, 'vat.rates', rates)),
     published,
     manager: sessionOf('u-manager', PERMISSIONS, 10000),
     cashier: sessionOf('u-cashier', ['order.discount', 'report.x'], 1000),

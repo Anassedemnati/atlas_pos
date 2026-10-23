@@ -1,7 +1,7 @@
 import type { ProductDto } from '@shared/dto'
 import { newId } from '@shared/ids'
 import type { Result } from '@shared/result'
-import { DEFAULT_VAT_BP, IdRule, productDefaults } from '../../../domain/catalog/fields'
+import { IdRule, defaultVatBp, productDefaults } from '../../../domain/catalog/fields'
 import {
   ProductInputSchema,
   QuickCreateSchema,
@@ -10,6 +10,7 @@ import {
 } from '../../../domain/catalog/inputs'
 import { requirePermission, type Session } from '../../../domain/users/session'
 import type { CatalogRepo } from '../../../infrastructure/db/repos/catalog-repo'
+import type { SettingsRepo } from '../../../infrastructure/db/repos/settings-repo'
 import type { UnitOfWork } from '../../../infrastructure/db/uow'
 import { AppErrorException } from '../../errors'
 import { attemptSync, invalidInput } from '../users/outcome'
@@ -18,9 +19,13 @@ import { logChange, parseInput } from './input'
 export interface ProductUseCases {
   /**
    * Creates (no `id`) or edits a product. Needs `catalog.manage`. The rules of every field are the
-   * ones of the setup profile. A barcode another product holds is `barcode_taken`; a blank one is none.
-   * A new product goes last; on an edit a field left out is kept (`null` clears the barcode, colour and image).
-   * Changing `stockMilli` on an edit is written to the log with the previous quantity.
+   * ones of the setup profile, and the VAT rate must be one of the `vat.rates` setting
+   * (`invalid_vat`, `params.allowed`). A barcode another product holds is `barcode_taken`; a blank one
+   * is none. A new product goes last; on an edit a field left out is kept (`null` clears the barcode,
+   * colour and image).
+   * `stockMilli` is the starting quantity: it is taken for a new product and for one that starts being
+   * tracked, and ignored for a product that already tracks its stock (its quantity moves with sales and
+   * `adjustStock`, which is audited with a reason).
    */
   saveProduct(session: Session, input: ProductInput): Result<{ id: string }>
   /**
@@ -31,7 +36,8 @@ export interface ProductUseCases {
   deleteProduct(session: Session, id: string): Result<{ outcome: 'deleted' | 'deactivated' }>
   /**
    * Needs `catalog.manage` (a manager at the till). A product for a barcode the scan did not find:
-   * French name, standard VAT (20 %), no stock tracking; everything else is edited later.
+   * French name, VAT 20 % (the highest rate of `vat.rates` when the business has no 20 %), no stock
+   * tracking; everything else is edited later.
    */
   quickCreateProduct(
     session: Session,
@@ -48,8 +54,12 @@ export interface ProductUseCases {
   adjustStock(session: Session, productId: string, deltaMilli: number, reason: string): Result<{ stockMilli: number }>
 }
 
-export function createProductUseCases(deps: { repo: CatalogRepo; uow: UnitOfWork }): ProductUseCases {
-  const { repo, uow } = deps
+export function createProductUseCases(deps: {
+  repo: CatalogRepo
+  uow: UnitOfWork
+  settings: SettingsRepo
+}): ProductUseCases {
+  const { repo, uow, settings } = deps
 
   const assertBarcodeFree = (barcode: string | null, ownerId: string | undefined): void => {
     if (barcode === null) return
@@ -70,6 +80,10 @@ export function createProductUseCases(deps: { repo: CatalogRepo; uow: UnitOfWork
       }
       const barcode = input.barcode === undefined ? (existing?.barcode ?? null) : input.barcode
       assertBarcodeFree(barcode, existing?.id)
+      const allowed = settings.get('vat.rates')
+      if (!allowed.includes(input.vatBp)) {
+        throw new AppErrorException('invalid_vat', { field: 'vatBp', vatBp: input.vatBp, allowed })
+      }
 
       const base: ProductDto = existing ?? {
         ...productDefaults(),
@@ -93,7 +107,8 @@ export function createProductUseCases(deps: { repo: CatalogRepo; uow: UnitOfWork
         keySize: input.keySize ?? base.keySize,
         active: input.active ?? base.active,
         stockTracked: input.stockTracked ?? base.stockTracked,
-        stockMilli: input.stockMilli ?? base.stockMilli,
+        // The quantity of a product that already tracks its stock is not the form's to set.
+        stockMilli: existing?.stockTracked ? existing.stockMilli : (input.stockMilli ?? base.stockMilli),
         lowStockMilli: input.lowStockMilli ?? base.lowStockMilli,
         course: input.course ?? base.course,
         modifierGroupIds: groupIds
@@ -154,7 +169,7 @@ export function createProductUseCases(deps: { repo: CatalogRepo; uow: UnitOfWork
         categoryId: input.categoryId,
         name: input.name,
         priceCents: input.priceCents,
-        vatBp: DEFAULT_VAT_BP,
+        vatBp: defaultVatBp(settings.get('vat.rates')),
         barcode,
         sort: repo.nextSort('product')
       }

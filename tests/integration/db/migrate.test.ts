@@ -61,6 +61,19 @@ describe('migrate', () => {
     ).toEqual({ failed_logins: 3, locked_until: '2026-10-22T10:15:00.000Z', pin_failed_logins: 0, pin_locked_until: null })
   })
 
+  it('004 indexes order_lines.product_id, for a database that already has sold lines', () => {
+    t = tempDb({ migrate: false })
+    migrate(t.db, migrations.slice(0, 3))
+    expect(t.db.prepare("SELECT 1 FROM sqlite_master WHERE name = 'idx_order_lines_product_id'").get()).toBeUndefined()
+    migrate(t.db)
+    const index = t.db.prepare("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'idx_order_lines_product_id'").get() as
+      | { sql: string }
+      | undefined
+    expect(index?.sql).toMatch(/order_lines \(product_id\)/)
+    const plan = t.db.prepare('EXPLAIN QUERY PLAN SELECT 1 FROM order_lines WHERE product_id = ? LIMIT 1').all('p') as { detail: string }[]
+    expect(plan.map((row) => row.detail).join(' ')).toMatch(/USING (COVERING )?INDEX idx_order_lines_product_id/)
+  })
+
   it('creates every table of schema v1', () => {
     t = tempDb()
     expect(tableNames(t).sort()).toEqual([...TABLES].sort())

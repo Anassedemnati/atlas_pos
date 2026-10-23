@@ -1,4 +1,5 @@
 import * as XLSX from 'xlsx'
+import { zipOf } from './zip'
 
 export const HEADER = [
   'categorie',
@@ -39,4 +40,40 @@ export function xlsxBuffer(aoa: unknown[][], extraSheet = false): Buffer {
   XLSX.utils.book_append_sheet(wb, sheet, 'Produits')
   if (extraSheet) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['ignored']]), 'Autre')
   return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer
+}
+
+const escapeXml = (text: string): string => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+
+/**
+ * An XLSX written by hand, so that its `dimension` can say anything (SheetJS would write every cell
+ * of a big range). Cells are inline strings in columns A to Z; `rows[0]` is row 1.
+ */
+export function xlsxWithDimension(rows: string[][], dimension: string): Buffer {
+  const sheetData = rows
+    .map((cells, r) => {
+      const xml = cells
+        .map((text, c) => `<c r="${String.fromCharCode(65 + c)}${r + 1}" t="inlineStr"><is><t>${escapeXml(text)}</t></is></c>`)
+        .join('')
+      return `<row r="${r + 1}">${xml}</row>`
+    })
+    .join('')
+  const main = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'
+  const rel = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
+  const file = (name: string, xml: string) => ({ name, data: Buffer.from(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>${xml}`) })
+  return zipOf([
+    file(
+      '[Content_Types].xml',
+      `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>`
+    ),
+    file(
+      '_rels/.rels',
+      `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="${rel}/officeDocument" Target="xl/workbook.xml"/></Relationships>`
+    ),
+    file('xl/workbook.xml', `<workbook xmlns="${main}" xmlns:r="${rel}"><sheets><sheet name="Produits" sheetId="1" r:id="rId1"/></sheets></workbook>`),
+    file(
+      'xl/_rels/workbook.xml.rels',
+      `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="${rel}/worksheet" Target="worksheets/sheet1.xml"/></Relationships>`
+    ),
+    file('xl/worksheets/sheet1.xml', `<worksheet xmlns="${main}"><dimension ref="${dimension}"/><sheetData>${sheetData}</sheetData></worksheet>`)
+  ])
 }

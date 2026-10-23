@@ -12,8 +12,8 @@ function ok<T>(r: Result<T>): T {
   return r.value
 }
 
-const parseOk = (buf: Buffer, name: string): ImportRow[] => {
-  const { rows, errors } = parseCatalogSheet(buf, name)
+const parseOk = (buf: Buffer, name: string, rates?: number[]): ImportRow[] => {
+  const { rows, errors } = parseCatalogSheet(buf, name, rates)
   expect(errors).toEqual([])
   return rows
 }
@@ -246,6 +246,69 @@ describe('catalog import and export', () => {
       ok(h.service.applyCatalogImport(h.manager, sampleRows(), 'replace'))
       expect(productByName('Eau minérale 1,5 L').active).toBe(true)
       expect(h.count('products')).toBe(3)
+    })
+  })
+
+  describe('replace: the audit row', () => {
+    const lastImport = () => JSON.parse(h.eventRows().filter((e) => e.type === 'catalog.imported').at(-1)!.data_json!)
+
+    it('names the products it deleted and the ones it deactivated', () => {
+      ok(h.service.applyCatalogImport(h.manager, sampleRows(), 'merge'))
+      expect(lastImport()).not.toHaveProperty('deletedNames')
+      const cafe = productByName('Café noir')
+      insertOrderLine(h.t.db, cafe.id)
+      ok(h.service.applyCatalogImport(h.manager, parseOk(csvBuffer([SAMPLE[0]!]), 'c.csv'), 'replace'))
+      expect(lastImport()).toMatchObject({
+        mode: 'replace',
+        deleted: 1,
+        deactivated: 1,
+        deletedNames: ['Sucre en vrac'],
+        deactivatedNames: ['Café noir']
+      })
+    })
+
+    it('lists 200 names at most per kind, and still counts them all', () => {
+      const many = Array.from({ length: 250 }, (_, i) => ['Stock', `Article ${i}`, '', '', '1', '20', '', '', '', ''])
+      ok(h.service.applyCatalogImport(h.manager, parseOk(csvBuffer(many), 'c.csv'), 'merge'))
+      ok(h.service.applyCatalogImport(h.manager, parseOk(csvBuffer([SAMPLE[0]!]), 'c.csv'), 'replace'))
+      const data = lastImport()
+      expect(data.deleted).toBe(250)
+      expect(data.deletedNames).toHaveLength(200)
+      expect(data.deletedNames[0]).toBe('Article 0')
+      expect(data.deactivatedNames).toEqual([])
+    })
+  })
+
+  describe('VAT rates (the vat.rates setting)', () => {
+    const odd = (): ImportRow[] => parseOk(csvBuffer([row550()]), 'c.csv', [2000, 550, 0])
+    const row550 = (): string[] => ['Boissons', 'Eau', '', '', '5', '5,5', '611', '', '', '']
+
+    it('applies a rate of the setting, and refuses it while the setting does not have it', () => {
+      const rows = odd()
+      expect(rows[0]?.vatBp).toBe(550)
+      expect(h.service.applyCatalogImport(h.manager, rows, 'merge')).toMatchObject({
+        ok: false,
+        error: { code: 'invalid_input', params: { field: 'rows.0.vatBp', row: 2 } }
+      })
+      expect(h.count('products')).toBe(0)
+      h.setVatRates([2000, 550, 0])
+      ok(h.service.applyCatalogImport(h.manager, rows, 'merge'))
+      expect(productByName('Eau').vatBp).toBe(550)
+    })
+
+    it.each([
+      ['csv', 'a.csv'],
+      ['xlsx', 'a.xlsx']
+    ] as const)('writes 5,5 for a rate of 550 and reads it back (%s)', (format, fileName) => {
+      h.setVatRates([2000, 550, 0])
+      ok(h.service.applyCatalogImport(h.manager, odd(), 'merge'))
+      const exported = h.service.exportCatalogSheet(format)
+      if (format === 'csv') expect(exported.toString('utf8')).toContain(';5,00;5,5;611;')
+      expect(parseOk(exported, fileName, [2000, 550, 0])[0]?.vatBp).toBe(550)
+      // read with the default rates, the same file has an error on `tva`
+      expect(parseCatalogSheet(exported, fileName).errors).toEqual([
+        { row: 2, field: 'tva', messageKey: 'errors.import_invalid_vat' }
+      ])
     })
   })
 

@@ -104,6 +104,8 @@ export interface CatalogRepo {
   referencedProductIds(): Set<string>
   /** The next `sort` after the last one of the table. */
   nextSort(kind: SortableKind): number
+  /** For each menu product, the products its courses offer. */
+  menuGraph(): Map<string, string[]>
 
   insertCategory(tx: Tx, category: CategoryDto): void
   updateCategory(tx: Tx, category: CategoryDto): void
@@ -123,7 +125,10 @@ export interface CatalogRepo {
   /** Inserts or updates the menu, and makes its courses exactly `menu.courses` (in order). */
   saveMenu(tx: Tx, menu: MenuDto): void
 
-  /** `sort` = position in `ids`. */
+  /**
+   * `sort` = position in `ids`; every other row follows, in the order it had (so no two rows share a
+   * `sort`).
+   */
   setSort(tx: Tx, kind: SortableKind, ids: string[]): void
 }
 
@@ -264,6 +269,20 @@ export function createCatalogRepo(db: Database): CatalogRepo {
       return new Set(rows.map((r) => r.product_id))
     },
 
+    menuGraph() {
+      const rows = db
+        .prepare(
+          `SELECT m.product_id AS menu_product, i.product_id AS item_product
+           FROM menus m JOIN menu_courses c ON c.menu_id = m.id JOIN menu_course_items i ON i.course_id = c.id`
+        )
+        .all() as { menu_product: string; item_product: string }[]
+      const graph = new Map<string, string[]>()
+      for (const { menu_product, item_product } of rows) {
+        graph.set(menu_product, [...(graph.get(menu_product) ?? []), item_product])
+      }
+      return graph
+    },
+
     nextSort: (kind) =>
       ((db.prepare(`SELECT COALESCE(MAX(sort) + 1, 0) AS next FROM ${SORT_TABLE[kind]}`).get() as { next: number }).next),
 
@@ -400,8 +419,13 @@ export function createCatalogRepo(db: Database): CatalogRepo {
     },
 
     setSort: (tx, kind, ids) => {
-      const update = tx.db.prepare(`UPDATE ${SORT_TABLE[kind]} SET sort = ? WHERE id = ?`)
-      ids.forEach((id, position) => update.run(position, id))
+      const table = SORT_TABLE[kind]
+      const listed = new Set(ids)
+      const others = (tx.db.prepare(`SELECT id FROM ${table} ORDER BY sort, id`).all() as { id: string }[])
+        .map((row) => row.id)
+        .filter((id) => !listed.has(id))
+      const update = tx.db.prepare(`UPDATE ${table} SET sort = ? WHERE id = ?`)
+      ;[...ids, ...others].forEach((id, position) => update.run(position, id))
     }
   }
 }

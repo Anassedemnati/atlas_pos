@@ -1,7 +1,8 @@
 import { z } from 'zod'
 import type { CatalogDto, ImportRow } from '@shared/dto'
 import { parseMoney } from '@shared/money'
-import { BarcodeRule, ColorRule, PriceCentsRule, SHEET_VAT_RATES_BP, StockMilliRule } from './fields'
+import { LocalizedNameSchema } from '../config/template'
+import { BarcodeRule, ColorRule, PriceCentsRule, StockMilliRule } from './fields'
 
 // The Excel / CSV catalogue sheet: its columns, how a cell becomes a field, and the back way.
 
@@ -60,16 +61,22 @@ const quantityOf = (cell: Cell): number | null => {
   return typeof cell === 'string' ? parseQuantityMilli(cell) : null
 }
 
-/** `20`, `20 %`, `20,0`; from a workbook also `20` or `0.2` (a cell formatted as a percentage). */
-function vatOf(cell: Cell): number | null {
-  const accept = (percent: number): number | null =>
-    SHEET_VAT_RATES_BP.includes(percent * 100) ? percent * 100 : null
-  if (typeof cell === 'number') {
-    return accept(cell) ?? accept(Math.round(cell * 100 * 1e6) / 1e6)
-  }
+const PERCENT_TEXT = /^(\d{1,3})(?:[.,](\d{1,2}))?$/
+
+/** `x` when it is a whole number (up to float noise), else null. */
+const whole = (x: number): number | null => (Math.abs(x - Math.round(x)) < 1e-6 ? Math.round(x) : null)
+
+/**
+ * A VAT cell as basis points, when it is one of `allowedBp` (the `vat.rates` setting). Text is the
+ * percentage: `20`, `20 %`, `20,0`, `5,5`. A workbook cell is a number: `20`, `5.5`, or a cell formatted
+ * as a percentage (`0.2`, `0.055`).
+ */
+function vatOf(cell: Cell, allowedBp: readonly number[]): number | null {
+  const allowed = (bp: number | null): number | null => (bp !== null && allowedBp.includes(bp) ? bp : null)
+  if (typeof cell === 'number') return allowed(whole(cell * 100)) ?? allowed(whole(cell * 10000))
   if (typeof cell !== 'string') return null
-  const match = /^(\d{1,2})(?:[.,]0+)?$/.exec(cell.replace(/\s/g, '').replace(/%$/, ''))
-  return match ? accept(Number(match[1])) : null
+  const match = PERCENT_TEXT.exec(cell.replace(/\s/g, '').replace(/%$/, ''))
+  return match ? allowed(Number(match[1]) * 100 + Number((match[2] ?? '').padEnd(2, '0'))) : null
 }
 
 export interface CellFailure {
@@ -87,20 +94,26 @@ const failure = (field: SheetColumn, reason: string): CellFailure => ({ field, m
  */
 export function parseRowCells(
   cell: (column: SheetColumn) => Cell,
-  rowNumber: number
+  rowNumber: number,
+  allowedVatBp: readonly number[]
 ): { row?: ImportRow; failures: CellFailure[]; barcode?: string } {
   const failures: CellFailure[] = []
   const fail = (field: SheetColumn, reason: string): void => {
     failures.push(failure(field, reason))
   }
 
-  const category = textOf(cell('categorie'))
-  if (category === '') fail('categorie', 'required')
-
-  const nameFr = textOf(cell('name_fr'))
-  if (nameFr === '') fail('name_fr', 'required')
-  const nameAr = textOf(cell('name_ar'))
-  const nameEn = textOf(cell('name_en'))
+  // Names and the category are names: `NAME_MAX_LENGTH` characters at most, as everywhere else.
+  const name = (column: SheetColumn, required: boolean): string => {
+    const value = textOf(cell(column))
+    if (value === '') {
+      if (required) fail(column, 'required')
+    } else if (!LocalizedNameSchema.shape.fr.safeParse(value).success) fail(column, 'too_long')
+    return value
+  }
+  const category = name('categorie', true)
+  const nameFr = name('name_fr', true)
+  const nameAr = name('name_ar', false)
+  const nameEn = name('name_en', false)
 
   const priceText = textOf(cell('prix'))
   let priceCents = 0
@@ -115,7 +128,7 @@ export function parseRowCells(
   let vatBp = 0
   if (vatText === '') fail('tva', 'required')
   else {
-    const vat = vatOf(cell('tva'))
+    const vat = vatOf(cell('tva'), allowedVatBp)
     if (vat === null) fail('tva', 'invalid_vat')
     else vatBp = vat
   }
@@ -169,21 +182,22 @@ export function parseRowCells(
 
 /**
  * An `ImportRow` that comes back from the preview screen (over IPC) is not trusted: the same rules
- * as a cell, applied to the typed values.
+ * as a cell, applied to the typed values. `allowedVatBp` is the `vat.rates` setting.
  */
-export const ImportRowSchema = z.strictObject({
-  row: z.number().int().min(1),
-  category: z.string().trim().min(1),
-  nameFr: z.string().trim().min(1),
-  nameAr: z.string().trim().min(1).optional(),
-  nameEn: z.string().trim().min(1).optional(),
-  priceCents: PriceCentsRule,
-  vatBp: z.number().refine((rate) => SHEET_VAT_RATES_BP.includes(rate), { message: 'not a VAT rate of the sheet' }),
-  barcode: BarcodeRule.optional(),
-  soldByWeight: z.boolean(),
-  stockMilli: StockMilliRule.optional(),
-  color: ColorRule.optional()
-})
+export const importRowSchema = (allowedVatBp: readonly number[]) =>
+  z.strictObject({
+    row: z.number().int().min(1),
+    category: LocalizedNameSchema.shape.fr,
+    nameFr: LocalizedNameSchema.shape.fr,
+    nameAr: LocalizedNameSchema.shape.ar,
+    nameEn: LocalizedNameSchema.shape.en,
+    priceCents: PriceCentsRule,
+    vatBp: z.number().refine((rate) => allowedVatBp.includes(rate), { message: 'not a configured VAT rate' }),
+    barcode: BarcodeRule.optional(),
+    soldByWeight: z.boolean(),
+    stockMilli: StockMilliRule.optional(),
+    color: ColorRule.optional()
+  })
 
 // Back to a sheet -----------------------------------------------------------------------------------
 
@@ -195,6 +209,12 @@ export const formatPrice = (cents: number): string =>
 export function formatQuantityMilli(milli: number): string {
   const fraction = String(milli % 1000).padStart(3, '0').replace(/0+$/, '')
   return `${Math.trunc(milli / 1000)}${fraction === '' ? '' : `,${fraction}`}`
+}
+
+/** Basis points as the percentage a sheet carries: `2000` -> `20`, `550` -> `5,5`. */
+export function formatVat(bp: number): string {
+  const fraction = String(bp % 100).padStart(2, '0').replace(/0+$/, '')
+  return `${Math.trunc(bp / 100)}${fraction === '' ? '' : `,${fraction}`}`
 }
 
 /**
@@ -232,7 +252,7 @@ export const rowToCells = (r: ImportRow): string[] => [
   r.nameAr ?? '',
   r.nameEn ?? '',
   formatPrice(r.priceCents),
-  String(r.vatBp / 100),
+  formatVat(r.vatBp),
   r.barcode ?? '',
   r.soldByWeight ? 'oui' : 'non',
   r.stockMilli === undefined ? '' : formatQuantityMilli(r.stockMilli),

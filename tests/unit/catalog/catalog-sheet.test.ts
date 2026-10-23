@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { ImportRow } from '../../../src/shared/dto'
 import { parseCatalogSheet } from '../../../src/main/infrastructure/import/catalog-sheet'
-import { HEADER, SAMPLE, csvBuffer, xlsxBuffer } from '../../helpers/sheets'
+import { HEADER, SAMPLE, csvBuffer, xlsxBuffer, xlsxWithDimension } from '../../helpers/sheets'
+import { zipOf } from '../../helpers/zip'
 
 const row = (fields: Record<number, string>, base = SAMPLE[0]!): string[] => base.map((v, i) => fields[i] ?? v)
 
@@ -86,6 +87,28 @@ describe('parseCatalogSheet: values', () => {
     expect(rows).toEqual([])
   })
 
+  it('refuses a name or a category of more than 200 characters, accepts 200', () => {
+    const long = 'é'.repeat(201)
+    const ok200 = 'é'.repeat(200)
+    const { rows, errors } = parseCatalogSheet(
+      csvBuffer([
+        row({ 0: long, 6: '1' }),
+        row({ 1: long, 6: '2' }),
+        row({ 2: long, 6: '3' }),
+        row({ 3: long, 6: '4' }),
+        row({ 0: ok200, 1: ok200, 2: ok200, 3: ok200, 6: '5' })
+      ]),
+      'c.csv'
+    )
+    expect(errors).toEqual([
+      { row: 2, field: 'categorie', messageKey: 'errors.import_too_long' },
+      { row: 3, field: 'name_fr', messageKey: 'errors.import_too_long' },
+      { row: 4, field: 'name_ar', messageKey: 'errors.import_too_long' },
+      { row: 5, field: 'name_en', messageKey: 'errors.import_too_long' }
+    ])
+    expect(rows.map((r) => r.row)).toEqual([6])
+  })
+
   it('reports every problem of a row, in column order', () => {
     const { errors } = parseCatalogSheet(csvBuffer([row({ 4: 'x', 5: '15', 9: 'bleu' })]), 'c.csv')
     expect(errors.map((e) => e.field)).toEqual(['prix', 'tva', 'couleur'])
@@ -100,6 +123,40 @@ describe('parseCatalogSheet: values', () => {
     const { rows, errors } = parseCatalogSheet(csvBuffer([row({ 6: '0012345', 1: '1-2' })]), 'c.csv')
     expect(errors).toEqual([])
     expect(rows[0]).toMatchObject({ barcode: '0012345', nameFr: '1-2' })
+  })
+})
+
+describe('parseCatalogSheet: VAT rates (the vat.rates setting)', () => {
+  const RATES = [2000, 550, 0]
+  const vats = (cells: (string | number)[], format: 'csv' | 'xlsx' = 'csv') => {
+    const lines = cells.map((t, i) => row({ 5: String(t), 6: String(i + 1) }))
+    return format === 'csv'
+      ? parseCatalogSheet(csvBuffer(lines), 'c.csv', RATES)
+      : parseCatalogSheet(xlsxBuffer([HEADER, ...lines.map((l, i) => l.map((v, c) => (c === 5 ? cells[i] : v)))]), 'c.xlsx', RATES)
+  }
+
+  it('accepts the percentage of any configured rate: 5,5 is 550', () => {
+    const { rows, errors } = vats(['20', '5,5', '5.5', '5,50 %', '0', '20 %'])
+    expect(errors).toEqual([])
+    expect(rows.map((r) => r.vatBp)).toEqual([2000, 550, 550, 550, 0, 2000])
+  })
+
+  it('refuses a rate that is not configured, even a legal one', () => {
+    const { rows, errors } = vats(['14', '7', '5,6', '10'])
+    expect(rows).toEqual([])
+    expect(errors.map((e) => [e.row, e.field, e.messageKey])).toEqual([2, 3, 4, 5].map((r) => [r, 'tva', 'errors.import_invalid_vat']))
+  })
+
+  it('reads workbook cells: 5.5, 20, and a percentage-formatted 0.055 or 0.2', () => {
+    const { rows, errors } = vats([5.5, 20, 0.055, 0.2, 0], 'xlsx')
+    expect(errors).toEqual([])
+    expect(rows.map((r) => r.vatBp)).toEqual([550, 2000, 550, 2000, 0])
+  })
+
+  it('uses the default rates of the setting when none are given', () => {
+    const { rows } = parseCatalogSheet(csvBuffer([row({ 5: '14' })]), 'c.csv')
+    expect(rows[0]?.vatBp).toBe(1400)
+    expect(parseCatalogSheet(csvBuffer([row({ 5: '5,5' })]), 'c.csv').errors).toHaveLength(1)
   })
 })
 
@@ -240,6 +297,66 @@ describe('parseCatalogSheet: hostile files', () => {
     const blank = ['', '', '', '', '', '', '', '', '', '']
     const lines = [...Array.from({ length: 6000 }, () => blank), SAMPLE[0]!]
     expect(parseCatalogSheet(csvBuffer(lines), 'c.csv').rows).toHaveLength(1)
+  })
+
+  it('reads a hand-written workbook (the helper behind the next test)', () => {
+    const file = xlsxWithDimension([HEADER, ...SAMPLE], 'A1:J4')
+    expect(parseCatalogSheet(file, 'c.xlsx')).toEqual({ rows: SAMPLE_ROWS, errors: [] })
+  })
+
+  it('does not expand a sheet to the width its dimension claims (A1:XFD5001 is 82 million cells)', () => {
+    const products = Array.from({ length: 5000 }, (_, i) => row({ 1: `Produit ${i}`, 6: String(i + 1) }))
+    const file = xlsxWithDimension([HEADER, ...products], 'A1:XFD5001')
+    expect(file.length).toBeLessThan(500_000)
+
+    const started = Date.now()
+    const { rows, errors } = parseCatalogSheet(file, 'wide.xlsx')
+    expect(Date.now() - started).toBeLessThan(2000)
+    expect(errors).toEqual([])
+    expect(rows).toHaveLength(5000)
+    expect(rows[4999]).toMatchObject({ row: 5001, nameFr: 'Produit 4999', barcode: '5000' })
+  })
+
+  it('reads the first 64 columns only', () => {
+    const wide = [...HEADER.slice(0, 5), ...Array.from({ length: 60 }, () => ''), 'tva']
+    const cells = [...SAMPLE[0]!.slice(0, 5), ...Array.from({ length: 60 }, () => ''), '20']
+    expect(parseCatalogSheet(xlsxBuffer([wide, cells]), 'c.xlsx').errors).toEqual([
+      { row: 1, field: 'tva', messageKey: 'errors.import_missing_column' }
+    ])
+  })
+
+  describe('a workbook that expands past 50 MB', () => {
+    const MB = 1024 * 1024
+    const sheetXml = (size: number) => ({ name: 'xl/worksheets/sheet1.xml', data: Buffer.alloc(size, 'a') })
+
+    it('is refused as too large though it is a few KB: one highly compressible file', () => {
+      const bomb = zipOf([sheetXml(51 * MB)])
+      expect(bomb.length).toBeLessThan(200_000)
+      expect(parseCatalogSheet(bomb, 'bomb.xlsx')).toEqual(fileError('errors.import_too_large'))
+    })
+
+    it('is refused when the files together are over the limit', () => {
+      const bomb = zipOf([0, 1, 2].map((i) => ({ ...sheetXml(20 * MB), name: `xl/worksheets/sheet${i}.xml` })))
+      expect(parseCatalogSheet(bomb, 'bomb.xlsx')).toEqual(fileError('errors.import_too_large'))
+    })
+
+    it('is refused when the directory lists the same file again and again', () => {
+      const bomb = zipOf([{ ...sheetXml(2 * MB), listedTimes: 40 }])
+      expect(parseCatalogSheet(bomb, 'bomb.xlsx')).toEqual(fileError('errors.import_too_large'))
+    })
+
+    it('counts stored (not deflated) files too', () => {
+      const bomb = zipOf([{ ...sheetXml(4 * MB), method: 0, listedTimes: 20 }])
+      expect(parseCatalogSheet(bomb, 'bomb.xlsx')).toEqual(fileError('errors.import_too_large'))
+    })
+
+    it('lets a 49 MB archive through to the reader (which finds no workbook in it)', () => {
+      expect(parseCatalogSheet(zipOf([sheetXml(49 * MB)]), 'big.xlsx')).toEqual(fileError('errors.import_unreadable'))
+    })
+
+    it('does not mistake a real workbook for a bomb', () => {
+      expect(parseCatalogSheet(xlsxBuffer([HEADER, ...SAMPLE], true), 'c.xlsx').rows).toHaveLength(3)
+    })
   })
 
   it('refuses a sheet of more than 20 000 physical rows, blank or not', () => {
