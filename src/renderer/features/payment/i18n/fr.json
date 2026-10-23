@@ -1,0 +1,18 @@
+{
+  "payment": {
+    "title": "Encaissement",
+    "backToOrder": "Retour à la commande",
+    "paid": "Déjà payé",
+    "due": "Reste à payer",
+    "change": "Rendu monnaie",
+    "giveChange": "Rendez la monnaie au client",
+    "settled": "La commande est entièrement payée",
+    "exact": "Exact",
+    "amount": "Montant",
+    "addCash": "Encaisser espèces",
+    "addAmount": "Ajouter ce montant",
+    "validate": "Valider et imprimer",
+    "closed": "Ticket {{label}} enregistré",
+    "removeReason": "Motif du retrait du paiement"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "tickets": {
+    "title": "الوصولات",
+    "back": "رجوع",
+    "search": "البحث عن وصل",
+    "searchPlaceholder": "رقم الوصل",
+    "none": "لا توجد وصولات.",
+    "reprint": "نسخة",
+    "reprinted": "تمت طباعة نسخة من الوصل {{label}}",
+    "cancel": "إلغاء",
+    "cancelReason": "سبب الإلغاء",
+    "cancelled": "تم إصدار الإشعار {{label}}",
+    "cancelledTag": "ملغى",
+    "credit": "إشعار عن {{label}}"
+  }
+}

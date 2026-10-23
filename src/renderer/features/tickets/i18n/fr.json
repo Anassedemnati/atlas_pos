@@ -1,0 +1,16 @@
+{
+  "tickets": {
+    "title": "Tickets",
+    "back": "Retour",
+    "search": "Rechercher un ticket",
+    "searchPlaceholder": "Numéro du ticket",
+    "none": "Aucun ticket.",
+    "reprint": "Duplicata",
+    "reprinted": "Duplicata du ticket {{label}} imprimé",
+    "cancel": "Annuler",
+    "cancelReason": "Motif de l'annulation",
+    "cancelled": "Avoir {{label}} émis",
+    "cancelledTag": "Annulé",
+    "credit": "Avoir sur {{label}}"
+  }
+}

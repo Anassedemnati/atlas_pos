@@ -1,0 +1,16 @@
+{
+  "tickets": {
+    "title": "Tickets",
+    "back": "Back",
+    "search": "Find a ticket",
+    "searchPlaceholder": "Ticket number",
+    "none": "No ticket.",
+    "reprint": "Duplicate",
+    "reprinted": "Duplicate of ticket {{label}} printed",
+    "cancel": "Cancel",
+    "cancelReason": "Reason for cancelling",
+    "cancelled": "Credit note {{label}} issued",
+    "cancelledTag": "Cancelled",
+    "credit": "Credit for {{label}}"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "login": {
+    "choose": "Qui êtes-vous ?",
+    "enterPin": "Saisissez votre code PIN",
+    "wrongPin": "Code PIN incorrect",
+    "locked": "Trop d'essais. Réessayez dans {{seconds}} s",
+    "noUsers": "Aucun utilisateur n'est configuré"
+  }
+}

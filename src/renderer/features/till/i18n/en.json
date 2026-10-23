@@ -1,0 +1,46 @@
+{
+  "till": {
+    "type": {
+      "counter": "Eat in",
+      "takeaway": "Takeaway",
+      "dine_in": "Dine in",
+      "delivery": "Delivery"
+    },
+    "orderNo": "Order no.",
+    "switchUser": "Switch user",
+    "lock": "Lock the till",
+    "override": {
+      "title": "Manager approval",
+      "hint": "A manager must enter their PIN to allow this."
+    },
+    "gate": {
+      "title": "Close the previous day",
+      "message": "Day {{number}} is over: run its Z closure before selling.",
+      "needManager": "Only a manager can close the day. Switch user.",
+      "close": "Close the day",
+      "finishOrders": "Finish the open orders"
+    },
+    "printJobs": {
+      "title": "Prints to check",
+      "none": "No print waiting.",
+      "reprint": "Print again",
+      "dismiss": "Dismiss",
+      "kind": {
+        "receipt": "Receipt",
+        "kitchen": "Kitchen",
+        "kitchen-cancel": "Kitchen cancel",
+        "drawer": "Cash drawer",
+        "z": "Z report",
+        "prebill": "Pre-bill",
+        "invoice": "Invoice"
+      },
+      "status": {
+        "pending": "Waiting",
+        "printing": "Printing…",
+        "done": "Printed",
+        "failed": "Failed",
+        "uncertain": "Print again?"
+      }
+    }
+  }
+}

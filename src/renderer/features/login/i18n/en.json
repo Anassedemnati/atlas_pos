@@ -1,0 +1,9 @@
+{
+  "login": {
+    "choose": "Who are you?",
+    "enterPin": "Enter your PIN",
+    "wrongPin": "Wrong PIN",
+    "locked": "Too many attempts. Try again in {{seconds}} s",
+    "noUsers": "No user is set up"
+  }
+}

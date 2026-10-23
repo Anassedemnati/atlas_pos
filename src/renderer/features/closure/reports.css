@@ -1,0 +1,198 @@
+/* Tickets, closure, recovery, technician menu. */
+.reports {
+  flex: 1 1 auto;
+  min-block-size: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  overflow: auto;
+}
+.ticket-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+  font-size: var(--fs-md);
+}
+.ticket-row__label {
+  min-inline-size: 96px;
+  font-size: 22px;
+}
+.ticket-row__total {
+  min-inline-size: 130px;
+  text-align: end;
+}
+.closure {
+  flex: 1 1 auto;
+  min-block-size: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+}
+.closure__main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-block-size: 0;
+  overflow: auto;
+}
+.closure__history {
+  overflow: auto;
+}
+.closure__actions {
+  display: flex;
+  gap: var(--space-4);
+}
+.closure__blocked {
+  padding: var(--space-4);
+  border-radius: var(--radius);
+  background: var(--red-soft);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.zview {
+  padding: var(--space-5);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+}
+.zview__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.zview__total {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-block: var(--space-3);
+  font-size: var(--fs-lg);
+}
+.zview__total strong {
+  font-size: 44px;
+  color: var(--teal-strong);
+}
+.zview__grid {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--space-2) var(--space-5);
+  margin: 0;
+}
+.zview__grid dd {
+  margin: 0;
+  text-align: end;
+}
+.zview__section h4 {
+  margin: var(--space-4) 0 var(--space-2);
+  color: var(--ink-muted);
+}
+.zview__row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding-block: 4px;
+}
+
+.recovery {
+  display: flex;
+  flex-direction: column;
+  block-size: 100%;
+  background: var(--bg);
+}
+.recovery__bar {
+  padding: var(--space-3) var(--space-5);
+  background: var(--navy);
+}
+.recovery__main {
+  flex: 1 1 auto;
+  min-block-size: 0;
+  display: grid;
+  place-items: center;
+  padding: var(--space-5);
+  overflow: auto;
+}
+.recovery__card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-4);
+  inline-size: min(100%, 640px);
+  padding: var(--space-6);
+  border-radius: 20px;
+  background: var(--surface);
+  box-shadow: var(--shadow-modal);
+  text-align: center;
+}
+.recovery__card--wide {
+  inline-size: min(100%, 820px);
+}
+.recovery__badge {
+  align-self: center;
+  display: grid;
+  place-items: center;
+  inline-size: 128px;
+  block-size: 128px;
+  border-radius: 50%;
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+.recovery__badge--warn {
+  background: var(--red-soft);
+  color: var(--red);
+}
+.checks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  text-align: start;
+}
+.check {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-sm);
+  background: var(--green-soft);
+  font-size: var(--fs-md);
+  font-weight: var(--fw-semibold);
+}
+.check--warn {
+  background: var(--amber-soft);
+}
+.check__icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  inline-size: 40px;
+  block-size: 40px;
+  border-radius: 50%;
+  background: var(--green);
+  color: #fff;
+}
+.check--warn .check__icon {
+  background: var(--amber);
+}
+.logs {
+  max-block-size: 50vh;
+  overflow: auto;
+  margin: 0;
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--navy);
+  color: #d7e0f0;
+  font-size: 13px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  user-select: text;
+}

@@ -1,0 +1,174 @@
+/* Till shell: login, frame, shared small pieces. Logical properties only. */
+.till-frame {
+  block-size: 100%;
+}
+.till-main {
+  flex: 1 1 auto;
+  min-block-size: 0;
+  display: flex;
+  flex-direction: column;
+}
+.plain-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.job-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+}
+.warn-text {
+  color: var(--amber-ink);
+  font-weight: var(--fw-semibold);
+}
+.error-text {
+  color: var(--red-strong);
+  font-weight: var(--fw-semibold);
+}
+.gate-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  border-radius: var(--radius-sm);
+  background: var(--teal-soft);
+  font-size: var(--fs-lg);
+}
+
+/* Login */
+.login {
+  display: flex;
+  flex-direction: column;
+  block-size: 100%;
+  background: var(--bg);
+}
+.login__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-5);
+  background: var(--navy);
+  color: #fff;
+}
+.login__main {
+  flex: 1 1 auto;
+  min-block-size: 0;
+  display: grid;
+  place-items: center;
+  padding: var(--space-5);
+  overflow: auto;
+}
+.login__panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-6);
+  inline-size: min(100%, 900px);
+  padding: var(--space-6);
+  border-radius: 20px;
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+}
+.login__panel--pin {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+}
+.login__users {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+.login__tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: var(--space-4);
+}
+.user-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 2px solid transparent;
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+  min-block-size: 140px;
+  justify-content: center;
+}
+.user-tile--selected {
+  border-color: var(--teal);
+  background: var(--teal-soft);
+}
+.user-tile__avatar {
+  display: grid;
+  place-items: center;
+  inline-size: 64px;
+  block-size: 64px;
+  border-radius: 50%;
+  background: var(--navy);
+  color: #fff;
+  font-size: 24px;
+  font-weight: var(--fw-bold);
+}
+.user-tile__name {
+  font-size: 20px;
+  font-weight: var(--fw-semibold);
+  text-align: center;
+}
+.login__pin {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+}
+.login__message {
+  min-block-size: 28px;
+  color: var(--red-strong);
+  font-weight: var(--fw-semibold);
+  text-align: center;
+}
+
+/* A tighter top bar: the till screens put tabs, a back button, two status pills, the clock and the user in one row. */
+.till-frame .topbar {
+  gap: var(--space-3);
+  padding-inline: var(--space-4);
+}
+.till-frame .topbar__title {
+  padding-inline-start: var(--space-3);
+  font-size: 20px;
+}
+.till-frame .topbar__end {
+  gap: var(--space-2);
+}
+.till-frame .topbar__clock {
+  padding-inline: var(--space-3);
+  font-size: 20px;
+}
+.till-frame .topbar .pill {
+  min-block-size: 36px;
+  padding-inline: 10px;
+  font-size: 14px;
+}
+.till-frame .topbar__center {
+  scrollbar-width: none;
+}
+.till-frame .topbar__center::-webkit-scrollbar {
+  display: none;
+}
+.till-frame .tabs--bar .tab {
+  padding-inline: var(--space-3);
+}
+
+/* The kit centres a dialog in a grid whose row has no definite height, so a tall dialog ran under the on-screen
+   keyboard instead of scrolling. A definite row makes `max-block-size: 100%` work: the body scrolls and the footer stays visible. */
+.modal-backdrop {
+  grid-template-rows: minmax(0, 1fr);
+}
