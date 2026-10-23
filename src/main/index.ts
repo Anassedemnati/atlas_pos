@@ -24,7 +24,7 @@ import { acquireRunningLock, type RunningLock } from './lifecycle/running-lock'
 import { createShellPorts, sendToWindows, type AppWindows } from './lifecycle/shell-ports'
 import { createCustomerDisplay, createTillWindow, loadRoute, type WindowConfig } from './lifecycle/windows'
 import { createConsoleLogger, createFileLogger, describeError, type Logger } from './logger'
-import { ensureDataLayout, resolveDataDir, resolveTemplateMediaDir } from './paths'
+import { ensureDataLayout, resolveDataDir, resolveTemplateMediaDir, type DataPaths } from './paths'
 import { RESTART_NORMALLY_EXIT_CODE } from './supervisor-policy'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -51,6 +51,8 @@ let display: BrowserWindow | null = null
 let runtime: Runtime | null = null
 let runningLock: RunningLock | null = null
 let stopBackoffice: (() => Promise<void>) | null = null
+/** What the back office needs from the composition root (set in `start`, before the first `startServiceDependents`). */
+let backofficeHost: { paths: DataPaths; afterRestore: (route: string) => void } | null = null
 let quitting = false
 let cleanedUp = false
 /** Set by `app.quit()` (quit to desktop, OS shutdown): only then may a kiosk till window close. */
@@ -147,7 +149,15 @@ function startServiceDependents(current: Runtime, services: Services, sessions: 
     })
   }
   optional('backoffice', () => {
-    if (!stopBackoffice && services.settings.get('backoffice.enabled')) stopBackoffice = startBackoffice({ runtime: current, log })
+    if (stopBackoffice || !backofficeHost || !services.settings.get('backoffice.enabled')) return
+    stopBackoffice = startBackoffice({
+      runtime: current,
+      log,
+      paths: backofficeHost.paths,
+      staticDir: join(here, '../renderer'),
+      afterRestore: backofficeHost.afterRestore,
+      restartNormally
+    })
   })
   optional('autostart', () => setAutostart(services.settings.get('autostart.enabled')))
 }
@@ -209,6 +219,14 @@ async function start(): Promise<void> {
       startServiceDependents(current, opened, sessions)
     }
   })
+  // A restore asked from the back office: the till signs everyone out and reloads on the route the restore decided.
+  backofficeHost = {
+    paths,
+    afterRestore: (route) => {
+      sessions.clear()
+      shell.navigateTill(route)
+    }
+  }
   // The setup wizard's back end: used only while no installation exists (the IPC layer enforces it).
   const setup = createSetupService({
     paths,
