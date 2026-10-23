@@ -111,6 +111,12 @@ describe('invoices', () => {
     expect(code(await h.invoices.invoicePdf(h.manager, 'nope'))).toBe('invalid_input')
   })
 
+  it('a customer whose name is the company name is printed once in the billed-to block', async () => {
+    const invoice = ok(h.invoices.createInvoice(h.manager, sale().id, company({ name: 'Alaoui SARL' }).id))
+    ok(await h.invoices.invoicePdf(h.manager, invoice.id))
+    expect(h.pdfs[0]!.split('Alaoui SARL')).toHaveLength(2)
+  })
+
   it('printInvoice queues the job on a printer that takes documents, and refuses a thermal one up front', () => {
     const invoice = ok(h.invoices.createInvoice(h.manager, sale().id, company().id))
     addPrinter(h.t.db, { id: 'p-a4', name: 'Bureau', kind: 'os-html', address: 'HP', role: 'receipt' })

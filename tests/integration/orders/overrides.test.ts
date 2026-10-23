@@ -48,6 +48,21 @@ describe('manager approvals for what a cashier may not do alone', () => {
       expect(code(h.orders.voidLine(h.cashier, other.orderId, other.lineId, 'Erreur', undefined, approval))).toBe('forbidden')
     })
 
+    it('the approval may also be passed as the order override token, and is then not offered to the discount check', async () => {
+      const { orderId, lineId } = sentLine()
+      const approval = await token('order.void_sent')
+      const dto = ok(h.orders.voidLine(h.cashier, orderId, lineId, 'Erreur de saisie', approval))
+      expect(dto.lines[0]).toMatchObject({ status: 'void' })
+      expect(h.eventRows('order.line_void').at(-1)).toMatchObject({ data: { voidOverriddenBy: h.seeded.users.amine } })
+      expect(h.eventRows('order.line_void').at(-1)!.data).not.toHaveProperty('overriddenBy')
+      // A discount approval in that slot is no approval to void a sent line.
+      const other = sentLine(h.fx.tables.t5)
+      expect(h.orders.voidLine(h.cashier, other.orderId, other.lineId, 'Erreur', await token('order.discount.override'))).toMatchObject({
+        ok: false,
+        error: { code: 'forbidden', params: { permission: 'order.void_sent' } }
+      })
+    })
+
     it('a line not yet sent needs no approval, and a manager needs none either', () => {
       const order = ok(h.orders.openOrder(h.cashier, { type: 'dine_in', tableId: h.fx.tables.t5 }))
       const line = ok(h.orders.addLine(h.cashier, order.id, { productId: h.fx.products.the, qtyMilli: 1000, modifierIds: [], note: '' })).lines[0]!

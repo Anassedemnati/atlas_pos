@@ -105,7 +105,7 @@ ${line(L.tel, b.telephone)}
 <section class="billed">
 <div class="title">${e(L.billedTo)}</div>
 <div>${bdi(customer.companyName || customer.name)}</div>
-${customer.companyName && customer.name ? `<div>${bdi(customer.name)}</div>` : ''}
+${customer.companyName && customer.name && customer.name !== customer.companyName ? `<div>${bdi(customer.name)}</div>` : ''}
 ${customer.address ? `<div>${bdi(customer.address)}</div>` : ''}
 ${line(L.tel, customer.phone ?? '')}
 ${line(L.ice, customer.ice ?? '')}

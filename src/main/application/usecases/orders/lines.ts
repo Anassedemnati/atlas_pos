@@ -43,8 +43,9 @@ export interface LineUseCases {
   setLineQty(session: Session, orderId: string, lineId: string, qtyMilli: number, overrideToken?: OverrideToken): Result<OrderDto>
   /**
    * Removes a line (it stays, as void, for the Z report). Before sending it is free; after, it needs
-   * `order.void_sent` and a reason (`forbidden` without it, unless a manager's `voidToken` approves it: spent last,
-   * recorded as `voidOverriddenBy`), and queues a kitchen "ANNULÉ" ticket. The stock comes back. The
+   * `order.void_sent` and a reason (`forbidden` without it, unless a manager's approval of that permission is given:
+   * `voidToken`, or `overrideToken` when that one is the `order.void_sent` approval; spent last, recorded as
+   * `voidOverriddenBy`), and queues a kitchen "ANNULÉ" ticket. The stock comes back. The
    * order's discount is checked again as for a lower quantity (`overrideToken`, see `setLineDiscount`).
    */
   voidLine(
@@ -187,13 +188,19 @@ export function createLineUseCases(ctx: Sales): LineUseCases {
     orderId: string,
     lineId: string,
     rawReason: string,
-    token?: OverrideToken,
+    discountToken?: OverrideToken,
     voidToken?: OverrideToken
   ): OrderDto {
     return uow.run((tx) => {
       const order = loadOrder(ctx, orderId)
       const line = activeLine(order, lineId)
       const sent = line.sentAt !== null
+      let token = discountToken
+      // The one approval a caller holds may be passed as `overrideToken`: when it is the `order.void_sent` one, it is that.
+      if (sent && voidToken === undefined && token !== undefined && !hasPermission(session, 'order.void_sent') && ctx.overrides.isOverrideValid(token, 'order.void_sent')) {
+        voidToken = token
+        token = undefined
+      }
       // A sent line needs `order.void_sent`, or a manager's approval of exactly that (checked now, spent once nothing can refuse).
       const needsApproval = sent && !hasPermission(session, 'order.void_sent')
       if (needsApproval) {
