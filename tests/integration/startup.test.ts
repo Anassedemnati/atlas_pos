@@ -35,8 +35,19 @@ import { ensureDataLayout, resolveDataDir, type DataPaths } from '../../src/main
 import { fixedClock } from '../helpers/clock'
 
 // Records the order of the durability calls and lets a test make the rename fail (a crash between
-// "tmp written" and "tmp renamed").
-const fsTrace = vi.hoisted(() => ({ calls: [] as string[], failRename: false }))
+// "tmp written" and "tmp renamed"), fail a given number of times with an error code (a locked file
+// on Windows), or make removing the temp file fail.
+const fsTrace = vi.hoisted(() => ({
+  calls: [] as string[],
+  failRename: false,
+  renameErrors: { code: 'EPERM', remaining: 0 },
+  failRemove: false
+}))
+vi.mock('../../src/main/infrastructure/db/connection', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/main/infrastructure/db/connection')>()
+  // Passes through to the real function; a test can replace one call (a lock, an I/O error).
+  return { ...actual, openDatabaseReadOnly: vi.fn(actual.openDatabaseReadOnly) }
+})
 vi.mock('node:fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs')>()
   const wrapped = {
@@ -48,11 +59,25 @@ vi.mock('node:fs', async (importOriginal) => {
     renameSync: (from: string, to: string) => {
       fsTrace.calls.push('rename')
       if (fsTrace.failRename) throw new Error('simulated crash before the rename')
+      if (fsTrace.renameErrors.remaining > 0) {
+        fsTrace.renameErrors.remaining--
+        throw Object.assign(new Error(`${fsTrace.renameErrors.code}: simulated locked file`), {
+          code: fsTrace.renameErrors.code
+        })
+      }
       return actual.renameSync(from, to)
+    },
+    rmSync: (...args: Parameters<typeof actual.rmSync>) => {
+      if (fsTrace.failRemove) throw new Error('simulated failure removing the temp file')
+      return actual.rmSync(...args)
     }
   }
   return { ...wrapped, default: wrapped }
 })
+
+const { openDatabaseReadOnly: realOpenReadOnly } = await vi.importActual<
+  typeof import('../../src/main/infrastructure/db/connection')
+>('../../src/main/infrastructure/db/connection')
 
 const NOW = '2026-10-22T10:00:00.000Z'
 const clock = fixedClock(NOW)
@@ -83,14 +108,14 @@ function makeInstalledSite(): { paths: DataPaths; db: Database } {
 let orderSeq = 0
 function insertOrder(
   db: Database,
-  o: { status: string; tableId?: string; orderNumber?: number; id?: string }
+  o: { status: string; type?: string; tableId?: string; orderNumber?: number; id?: string }
 ): string {
   const id = o.id ?? newId()
   const opened = new Date(Date.parse(NOW) + orderSeq++ * 1000).toISOString()
   db.prepare(
     `INSERT INTO orders (id, day_id, type, table_id, order_number, status, user_id, opened_at, updated_at)
-     VALUES (?, 'day-1', 'counter', ?, ?, ?, 'u1', ?, ?)`
-  ).run(id, o.tableId ?? null, o.orderNumber ?? null, o.status, opened, opened)
+     VALUES (?, 'day-1', ?, ?, ?, ?, 'u1', ?, ?)`
+  ).run(id, o.type ?? 'counter', o.tableId ?? null, o.orderNumber ?? null, o.status, opened, opened)
   return id
 }
 const closeCleanly = (db: Database): void => {
@@ -104,6 +129,9 @@ const check = (paths: DataPaths, unclean = false, log?: StartupLog) =>
 beforeEach(() => {
   fsTrace.calls = []
   fsTrace.failRename = false
+  fsTrace.renameErrors = { code: 'EPERM', remaining: 0 }
+  fsTrace.failRemove = false
+  vi.mocked(openDatabaseReadOnly).mockReset() // back to the real implementation
   orderSeq = 0
 })
 afterEach(() => {
@@ -166,6 +194,17 @@ describe('ensureDataLayout', () => {
   })
 })
 
+/** Runs `fn` with `process.platform` reporting `platform`. */
+function asPlatform<T>(platform: NodeJS.Platform, fn: () => T): T {
+  const original = Object.getOwnPropertyDescriptor(process, 'platform')!
+  Object.defineProperty(process, 'platform', { value: platform })
+  try {
+    return fn()
+  } finally {
+    Object.defineProperty(process, 'platform', original)
+  }
+}
+
 describe('writeFileAtomic', () => {
   const site = (): { dir: string; file: string } => {
     const dir = makeSite().config
@@ -189,14 +228,59 @@ describe('writeFileAtomic', () => {
 
   it('skips the directory fsync on Windows', () => {
     const { file } = site()
-    const platform = Object.getOwnPropertyDescriptor(process, 'platform')!
-    Object.defineProperty(process, 'platform', { value: 'win32' })
-    try {
-      writeFileAtomic(file, 'x')
-    } finally {
-      Object.defineProperty(process, 'platform', platform)
-    }
+    asPlatform('win32', () => writeFileAtomic(file, 'x'))
     expect(fsTrace.calls).toEqual(['fsync', 'rename'])
+  })
+
+  const renameCalls = (): number => fsTrace.calls.filter((c) => c === 'rename').length
+
+  it('on Windows, retries a target that is transiently locked and then succeeds', () => {
+    const { dir, file } = site()
+    writeFileAtomic(file, 'old')
+    fsTrace.calls = []
+    fsTrace.renameErrors = { code: 'EBUSY', remaining: 2 }
+    asPlatform('win32', () => writeFileAtomic(file, 'new'))
+    expect(readFileSync(file, 'utf8')).toBe('new')
+    expect(renameCalls()).toBe(3)
+    expect(readdirSync(dir)).toEqual(['data.json'])
+  })
+
+  it.each(['EPERM', 'EBUSY', 'EACCES'])('on Windows, gives up on %s after 5 tries and keeps the old content', (code) => {
+    const { dir, file } = site()
+    writeFileAtomic(file, 'old')
+    fsTrace.calls = []
+    fsTrace.renameErrors = { code, remaining: 99 }
+    expect(() => asPlatform('win32', () => writeFileAtomic(file, 'new'))).toThrow(code)
+    expect(renameCalls()).toBe(5)
+    expect(readFileSync(file, 'utf8')).toBe('old')
+    expect(readdirSync(dir)).toEqual(['data.json'])
+  })
+
+  it('does not retry other errors on Windows, nor a locked file on other platforms', () => {
+    const { file } = site()
+    fsTrace.renameErrors = { code: 'ENOSPC', remaining: 99 }
+    expect(() => asPlatform('win32', () => writeFileAtomic(file, 'x'))).toThrow('ENOSPC')
+    expect(renameCalls()).toBe(1)
+
+    fsTrace.calls = []
+    fsTrace.renameErrors = { code: 'EPERM', remaining: 99 }
+    expect(() => asPlatform('linux', () => writeFileAtomic(file, 'x'))).toThrow('EPERM')
+    expect(renameCalls()).toBe(1)
+  })
+
+  it('a failing cleanup of the temp file never replaces the original error', () => {
+    const { dir, file } = site()
+    fsTrace.failRename = true
+    fsTrace.failRemove = true
+    try {
+      expect(() => writeFileAtomic(file, 'x')).toThrow('simulated crash before the rename')
+    } finally {
+      fsTrace.failRemove = false
+    }
+    expect(readdirSync(dir)).toEqual(['data.json.tmp']) // left behind, replaced by the next write
+    fsTrace.failRename = false
+    writeFileAtomic(file, 'y')
+    expect(readdirSync(dir)).toEqual(['data.json'])
   })
 
   it('keeps the old content when the process dies before the rename', () => {
@@ -296,6 +380,66 @@ describe('acquireRunningLock', () => {
   })
 })
 
+// Damage helpers (the database is a real file; the garbage is written into it while it is closed).
+const PAGE_FILL = 0xa5
+/**
+ * A migrated database with enough `event_log` rows to span several pages, closed cleanly. Returns
+ * the byte offset where the page in the middle of the table's leaf pages starts.
+ */
+const siteWithDataPages = (userVersion?: number): { paths: DataPaths; middlePageOffset: number } => {
+  const { paths, db } = makeInstalledSite()
+  for (let i = 0; i < 300; i++) {
+    appendEvent(db, { type: 'x', entity: 'e', entityId: String(i), data: { padding: 'p'.repeat(40) } }, clock)
+  }
+  if (userVersion !== undefined) db.pragma(`user_version = ${userVersion}`)
+  closeCleanly(db)
+  const probe = openDatabaseReadOnly(paths.dbFile)
+  const leaves = probe
+    .prepare("SELECT pageno FROM dbstat WHERE name = 'event_log' AND pagetype = 'leaf' ORDER BY pageno")
+    .all() as { pageno: number }[]
+  const pageSize = probe.pragma('page_size', { simple: true }) as number
+  expect(probe.pragma('quick_check', { simple: true })).toBe('ok') // the damage is what makes it fail
+  probe.close()
+  expect(leaves.length).toBeGreaterThan(3)
+  const middle = leaves[Math.floor(leaves.length / 2)]!.pageno
+  return { paths, middlePageOffset: (middle - 1) * pageSize }
+}
+const overwrite = (file: string, offset: number, length: number): void => {
+  const fd = openSync(file, 'r+')
+  try {
+    writeSync(fd, Buffer.alloc(length, PAGE_FILL), 0, length, offset)
+  } finally {
+    closeSync(fd)
+  }
+}
+/** Garbage over the middle of a data page: quick_check answers with a list of problems. */
+const corruptMiddleOfPage = (userVersion?: number): DataPaths => {
+  const { paths, middlePageOffset } = siteWithDataPages(userVersion)
+  overwrite(paths.dbFile, middlePageOffset + 1500, 256)
+  return paths
+}
+/** Garbage over a page's b-tree header: SQLite refuses to read the file at all (the check throws). */
+const corruptBtreeHeader = (userVersion?: number): DataPaths => {
+  const { paths, middlePageOffset } = siteWithDataPages(userVersion)
+  overwrite(paths.dbFile, middlePageOffset, 64)
+  return paths
+}
+const quickCheckFails = (file: string): boolean => {
+  const ro = openDatabaseReadOnly(file)
+  try {
+    return ro.pragma('quick_check', { simple: true }) !== 'ok'
+  } catch {
+    return true
+  } finally {
+    ro.close()
+  }
+}
+const recordLog = (): { events: { event: string; data?: Record<string, unknown> }[]; log: StartupLog } => {
+  const events: { event: string; data?: Record<string, unknown> }[] = []
+  return { events, log: (event, data) => events.push(data ? { event, data } : { event }) }
+}
+
+
 describe('startupCheck', () => {
   describe('needs-setup', () => {
     it('is reported when there is no installation file, without touching anything', () => {
@@ -345,8 +489,8 @@ describe('startupCheck', () => {
       expect(report.unclean).toBe(true)
       expect(report.integrity).toBe('ok')
       expect(report.restoredOrders).toEqual([
-        { id: a, label: '7' },
-        { id: b, label: '8' }
+        { id: a, type: 'counter', tableLabel: null, orderNumber: 7, idSuffix: a.slice(-6) },
+        { id: b, type: 'counter', tableLabel: null, orderNumber: 8, idSuffix: b.slice(-6) }
       ])
     })
 
@@ -357,20 +501,20 @@ describe('startupCheck', () => {
       expect(check(paths, true)).toMatchObject({ state: 'recovered', restoredOrders: [] })
     })
 
-    it('labels an order by its table, else its number, else "Vente" + the end of its id', () => {
+    it('reports table label, order number and the end of the id as separate fields (no composed text)', () => {
       const { paths, db } = makeInstalledSite()
       db.prepare("INSERT INTO rooms (id, name_json) VALUES ('room-1', '{}')").run()
       db.prepare("INSERT INTO tables (id, room_id, label) VALUES ('table-4', 'room-1', 'T4')").run()
-      const onTable = insertOrder(db, { status: 'open', tableId: 'table-4', orderNumber: 3 })
+      const onTable = insertOrder(db, { status: 'open', type: 'dine_in', tableId: 'table-4', orderNumber: 3 })
       const numbered = insertOrder(db, { status: 'parked', orderNumber: 12 })
-      const plain = insertOrder(db, { status: 'open', id: '0198a2b3-c4d5-7e6f-8a9b-0c1d2e3f4a5b' })
-      const orphanTable = insertOrder(db, { status: 'open', tableId: 'deleted-table', id: 'x-ABCDEF' })
+      const plain = insertOrder(db, { status: 'open', type: 'takeaway', id: '0198a2b3-c4d5-7e6f-8a9b-0c1d2e3f4a5b' })
+      const orphanTable = insertOrder(db, { status: 'open', type: 'delivery', tableId: 'deleted-table', id: 'x-ABCDEF' })
       closeCleanly(db)
       expect(check(paths, true).restoredOrders).toEqual([
-        { id: onTable, label: 'T4' },
-        { id: numbered, label: '12' },
-        { id: plain, label: 'Vente 3f4a5b' },
-        { id: orphanTable, label: 'Vente ABCDEF' }
+        { id: onTable, type: 'dine_in', tableLabel: 'T4', orderNumber: 3, idSuffix: onTable.slice(-6) },
+        { id: numbered, type: 'counter', tableLabel: null, orderNumber: 12, idSuffix: numbered.slice(-6) },
+        { id: plain, type: 'takeaway', tableLabel: null, orderNumber: null, idSuffix: '3f4a5b' },
+        { id: orphanTable, type: 'delivery', tableLabel: null, orderNumber: null, idSuffix: 'ABCDEF' }
       ])
     })
 
@@ -398,9 +542,10 @@ describe('startupCheck', () => {
            VALUES (?, ?, 'live', 'f.atlasbak', 'abc', 1, ?)`
         ).run(newId(), at, results)
       }
-      run('2026-10-20T08:00:00.000Z', JSON.stringify([{ destinationId: 'd1', ok: true }]))
-      run('2026-10-21T20:00:00.000Z', JSON.stringify([{ destinationId: 'd1', ok: false, error: 'usb' }, { destinationId: 'd2', ok: true }]))
-      run('2026-10-21T23:00:00.000Z', JSON.stringify([{ destinationId: 'd1', ok: false, error: 'usb' }]))
+      const result = (targetId: string, role: string, ok: boolean) => ({ targetId, role, ok })
+      run('2026-10-20T08:00:00.000Z', JSON.stringify([result('t1', 'disk', true)]))
+      run('2026-10-21T20:00:00.000Z', JSON.stringify([result('t2', 'usb', false), result('t1', 'disk', true)]))
+      run('2026-10-21T23:00:00.000Z', JSON.stringify([result('t2', 'usb', false)]))
       run('2026-10-22T08:00:00.000Z', 'not json at all')
       run('2026-10-22T09:00:00.000Z', '[]')
       closeCleanly(db)
@@ -415,63 +560,6 @@ describe('startupCheck', () => {
   })
 
   describe('corrupt', () => {
-    const PAGE_FILL = 0xa5
-    /**
-     * A migrated database with enough `event_log` rows to span several pages, closed cleanly. Returns
-     * the byte offset where the page in the middle of the table's leaf pages starts.
-     */
-    const siteWithDataPages = (): { paths: DataPaths; middlePageOffset: number } => {
-      const { paths, db } = makeInstalledSite()
-      for (let i = 0; i < 300; i++) {
-        appendEvent(db, { type: 'x', entity: 'e', entityId: String(i), data: { padding: 'p'.repeat(40) } }, clock)
-      }
-      closeCleanly(db)
-      const probe = openDatabaseReadOnly(paths.dbFile)
-      const leaves = probe
-        .prepare("SELECT pageno FROM dbstat WHERE name = 'event_log' AND pagetype = 'leaf' ORDER BY pageno")
-        .all() as { pageno: number }[]
-      const pageSize = probe.pragma('page_size', { simple: true }) as number
-      expect(probe.pragma('quick_check', { simple: true })).toBe('ok') // the damage is what makes it fail
-      probe.close()
-      expect(leaves.length).toBeGreaterThan(3)
-      const middle = leaves[Math.floor(leaves.length / 2)]!.pageno
-      return { paths, middlePageOffset: (middle - 1) * pageSize }
-    }
-    const overwrite = (file: string, offset: number, length: number): void => {
-      const fd = openSync(file, 'r+')
-      try {
-        writeSync(fd, Buffer.alloc(length, PAGE_FILL), 0, length, offset)
-      } finally {
-        closeSync(fd)
-      }
-    }
-    /** Garbage over the middle of a data page: quick_check answers with a list of problems. */
-    const corruptMiddleOfPage = (): DataPaths => {
-      const { paths, middlePageOffset } = siteWithDataPages()
-      overwrite(paths.dbFile, middlePageOffset + 1500, 256)
-      return paths
-    }
-    /** Garbage over a page's b-tree header: SQLite refuses to read the file at all (the check throws). */
-    const corruptBtreeHeader = (): DataPaths => {
-      const { paths, middlePageOffset } = siteWithDataPages()
-      overwrite(paths.dbFile, middlePageOffset, 64)
-      return paths
-    }
-    const quickCheckFails = (file: string): boolean => {
-      const ro = openDatabaseReadOnly(file)
-      try {
-        return ro.pragma('quick_check', { simple: true }) !== 'ok'
-      } catch {
-        return true
-      } finally {
-        ro.close()
-      }
-    }
-    const recordLog = (): { events: { event: string; data?: Record<string, unknown> }[]; log: StartupLog } => {
-      const events: { event: string; data?: Record<string, unknown> }[] = []
-      return { events, log: (event, data) => events.push(data ? { event, data } : { event }) }
-    }
-
     it('overwritten bytes in the middle of a page: corrupt, and the file is moved to db/corrupt-<ts>.db', () => {
       const paths = corruptMiddleOfPage()
       expect(quickCheckFails(paths.dbFile)).toBe(true)
@@ -588,6 +676,114 @@ describe('startupCheck', () => {
       const ro = openDatabaseReadOnly(paths.dbFile)
       expect(ro.pragma('user_version', { simple: true })).toBe(newer)
       ro.close()
+    })
+
+    it.each([
+      ['garbage in the middle of a page (the check reports problems)', corruptMiddleOfPage],
+      ['a damaged b-tree header (the check throws)', corruptBtreeHeader]
+    ])('stays newer-schema when the integrity check also fails, reports it, never moves the file: %s', (_name, damage) => {
+      const newer = migrations.length + 1
+      const paths = damage(newer)
+      expect(quickCheckFails(paths.dbFile)).toBe(true)
+      const before = sha256(paths.dbFile)
+
+      const report = check(paths, true)
+
+      expect(report).toMatchObject({
+        state: 'newer-schema',
+        integrity: 'failed',
+        restoredOrders: [],
+        corruptFile: null,
+        newerSchema: { found: newer, supported: migrations.length }
+      })
+      expect(existsSync(paths.dbFile)).toBe(true)
+      expect(sha256(paths.dbFile)).toBe(before)
+      expect(readdirSync(paths.db).filter((f) => f.startsWith('corrupt-'))).toEqual([])
+    })
+  })
+
+  describe('an error that does not prove corruption is thrown, and the database is left alone', () => {
+    const sqliteError = (code: string, message: string): Error => Object.assign(new Error(message), { code })
+
+    const expectUntouched = (paths: DataPaths, before: string): void => {
+      expect(existsSync(paths.dbFile)).toBe(true)
+      expect(sha256(paths.dbFile)).toBe(before)
+      expect(readdirSync(paths.db).filter((f) => f.startsWith('corrupt-'))).toEqual([])
+    }
+    const healthySite = (): { paths: DataPaths; before: string } => {
+      const { paths, db } = makeInstalledSite()
+      insertOrder(db, { status: 'open' })
+      closeCleanly(db)
+      return { paths, before: sha256(paths.dbFile) }
+    }
+
+    it.each([
+      ['SQLITE_BUSY', 'database is locked'],
+      ['SQLITE_CANTOPEN', 'unable to open database file'],
+      ['SQLITE_IOERR', 'disk I/O error']
+    ])('%s while opening', (code, message) => {
+      const { paths, before } = healthySite()
+      vi.mocked(openDatabaseReadOnly).mockImplementationOnce(() => {
+        throw sqliteError(code, message)
+      })
+      expect(() => check(paths, true)).toThrow(message)
+      expectUntouched(paths, before)
+    })
+
+    it.each([
+      ['SQLITE_BUSY', 'database is locked'],
+      ['SQLITE_IOERR_READ', 'disk I/O error']
+    ])('%s during the integrity check (and the handle is still closed)', (code, message) => {
+      const { paths, before } = healthySite()
+      let real: Database | undefined
+      vi.mocked(openDatabaseReadOnly).mockImplementationOnce((file) => {
+        real = realOpenReadOnly(file)
+        const target = real
+        return new Proxy(target, {
+          get(t, prop) {
+            if (prop === 'pragma') {
+              return (source: string, options?: { simple?: boolean }) => {
+                if (source.startsWith('quick_check')) throw sqliteError(code, message)
+                return t.pragma(source, options)
+              }
+            }
+            const value: unknown = Reflect.get(t, prop)
+            return typeof value === 'function' ? (value as (...a: unknown[]) => unknown).bind(t) : value
+          }
+        })
+      })
+      expect(() => check(paths, true)).toThrow(message)
+      expect(real?.open).toBe(false)
+      expectUntouched(paths, before)
+    })
+  })
+
+  describe('a schema that a later migration changed', () => {
+    it('a removed backup_runs table gives lastBackupAt null instead of failing the start', () => {
+      const { paths, db } = makeInstalledSite()
+      db.exec('DROP TABLE backup_runs')
+      closeCleanly(db)
+      const { events, log } = recordLog()
+      expect(check(paths, false, log)).toMatchObject({ state: 'ok', integrity: 'ok', lastBackupAt: null })
+      expect(events).toEqual([{ event: 'startup.read_degraded', data: expect.objectContaining({ what: 'backup_runs' }) }])
+    })
+
+    it('a renamed orders column gives no restored orders instead of failing an unclean start', () => {
+      const { paths, db } = makeInstalledSite()
+      insertOrder(db, { status: 'open' })
+      db.exec('ALTER TABLE orders RENAME COLUMN order_number TO number')
+      closeCleanly(db)
+      const { events, log } = recordLog()
+      expect(check(paths, true, log)).toMatchObject({ state: 'recovered', integrity: 'ok', restoredOrders: [] })
+      expect(events).toEqual([{ event: 'startup.read_degraded', data: expect.objectContaining({ what: 'orders' }) }])
+    })
+
+    it('a removed tables table is handled the same way', () => {
+      const { paths, db } = makeInstalledSite()
+      insertOrder(db, { status: 'open' })
+      db.exec('DROP TABLE tables')
+      closeCleanly(db)
+      expect(check(paths, true)).toMatchObject({ state: 'recovered', restoredOrders: [] })
     })
   })
 })

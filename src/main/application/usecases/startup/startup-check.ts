@@ -8,10 +8,21 @@ import type { Clock } from '../../ports'
 
 export type StartupState = 'needs-setup' | 'ok' | 'recovered' | 'corrupt' | 'newer-schema'
 
+export type RestoredOrderType = 'dine_in' | 'takeaway' | 'delivery' | 'counter'
+
+/**
+ * Data only: the renderer composes the text of an order (table label, else "n° <number>", else a
+ * generic sale name plus `idSuffix`) in the user's language.
+ */
 export interface RestoredOrder {
   id: string
-  /** The table label, else the order number, else "Vente" + the end of the id. */
-  label: string
+  type: RestoredOrderType
+  /** Label of the table the order is on, null for an order without a table (or whose table is gone). */
+  tableLabel: string | null
+  /** The order number (counter, takeaway), or null. */
+  orderNumber: number | null
+  /** The last 6 characters of `id`: the random end of a UUIDv7 (its start is a timestamp shared by orders opened within a minute). */
+  idSuffix: string
 }
 
 export interface StartupReport {
@@ -130,8 +141,8 @@ function inspect(file: string, unclean: boolean, log: StartupLog): Inspection {
 
     return {
       kind: 'readable',
-      restoredOrders: unclean ? readOpenOrders(db) : [],
-      lastBackupAt: readLastBackupAt(db)
+      restoredOrders: unclean ? degradeIfSchemaDiffers(log, 'orders', [], () => readOpenOrders(db)) : [],
+      lastBackupAt: degradeIfSchemaDiffers(log, 'backup_runs', null, () => readLastBackupAt(db))
     }
   } finally {
     db.close()
@@ -157,22 +168,44 @@ function runCheck(db: Database, pragma: 'quick_check' | 'integrity_check'): stri
 function readOpenOrders(db: Database): RestoredOrder[] {
   const rows = db
     .prepare(
-      `SELECT o.id AS id, o.order_number AS orderNumber, t.label AS tableLabel
+      `SELECT o.id AS id, o.type AS type, o.order_number AS orderNumber, t.label AS tableLabel
        FROM orders o LEFT JOIN tables t ON t.id = o.table_id
        WHERE o.status IN ('open', 'parked')
        ORDER BY o.opened_at, o.id`
     )
-    .all() as { id: string; orderNumber: number | null; tableLabel: string | null }[]
+    .all() as { id: string; type: RestoredOrderType; orderNumber: number | null; tableLabel: string | null }[]
   return rows.map((row) => ({
     id: row.id,
-    // The end of a UUIDv7 is random; its start is the timestamp, shared by orders opened within a minute.
-    label: row.tableLabel ?? (row.orderNumber !== null ? String(row.orderNumber) : `Vente ${row.id.slice(-6)}`)
+    type: row.type,
+    tableLabel: row.tableLabel,
+    orderNumber: row.orderNumber,
+    idSuffix: row.id.slice(-6)
   }))
 }
 
 /**
- * Newest `backup_runs.at` with at least one result `{ ok: true }` in `results_json` (a JSON array,
- * one entry per destination). A row whose results cannot be read counts as not successful.
+ * This check runs before the migrations, on whatever schema the file has. These two reads are
+ * informational, so a table or column that a later migration renamed or removed must not stop the
+ * start: the answer is then "nothing to report" and the event is logged. Any other error is
+ * thrown (a corrupt file is handled by the caller).
+ */
+function degradeIfSchemaDiffers<T>(log: StartupLog, what: string, fallback: T, read: () => T): T {
+  try {
+    return read()
+  } catch (error) {
+    const { code, message } = error as { code?: unknown; message?: unknown }
+    if (code === 'SQLITE_ERROR' && typeof message === 'string' && /no such (table|column)/i.test(message)) {
+      log('startup.read_degraded', { what, message })
+      return fallback
+    }
+    throw error
+  }
+}
+
+/**
+ * Newest `backup_runs.at` with at least one result `{ ok: true }` in `results_json`: a JSON array
+ * with one `{ targetId, role, ok }` entry per backup target. A row whose results cannot be read
+ * counts as not successful.
  */
 function readLastBackupAt(db: Database): string | null {
   const rows = db.prepare('SELECT at, results_json AS results FROM backup_runs ORDER BY at DESC').iterate() as Iterable<{
