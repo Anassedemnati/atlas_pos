@@ -36,6 +36,31 @@ test.describe('bakery: weight sale', () => {
   })
 })
 
+test.describe('bakery: photo keys', () => {
+  let till: Till
+  test.beforeAll(async () => {
+    till = await startTill('bakery')
+  })
+  test.afterAll(async () => {
+    await till?.close().catch(() => undefined)
+    till?.cleanup()
+  })
+
+  test('with photo keys the products show their picture from the media folder', async () => {
+    const { page } = till
+    await login(page, 'Karim')
+    const changed = await page.evaluate(async () => {
+      const bridge = (window as unknown as { atlas: { invoke(c: string, i: unknown): Promise<{ ok: boolean }> } }).atlas
+      return (await bridge.invoke('settings.set', { key: 'ui.keyStyle', value: 'photo' })).ok
+    })
+    expect(changed).toBe(true)
+    const image = page.locator('.product-key__image').first()
+    await expect(image).toBeVisible({ timeout: 10_000 })
+    await expect.poll(() => image.evaluate((img) => (img as HTMLImageElement).naturalWidth)).toBeGreaterThan(0)
+    await shot(page, '15-bakery-photo-keys')
+  })
+})
+
 test.describe('retail: barcode sale', () => {
   let till: Till
   test.beforeAll(async () => {

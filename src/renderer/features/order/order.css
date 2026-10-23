@@ -363,3 +363,11 @@
   font-size: 24px;
   font-variant-numeric: tabular-nums;
 }
+
+/* Categories are swiped, not scrolled with a bar. */
+.catalog__tabs-scroll {
+  scrollbar-width: none;
+}
+.catalog__tabs-scroll::-webkit-scrollbar {
+  display: none;
+}
