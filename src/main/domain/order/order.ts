@@ -21,7 +21,7 @@ export interface Order {
   updatedAt: string
   note: string
   discount: Discount | null
-  /** The largest combined discount (bp) a manager approved for this order; null when none. */
+  /** The order's combined discount (bp) as last approved (see migration 005); null when none. */
   discountApprovedBp: number | null
   lines: OrderLine[]
 }

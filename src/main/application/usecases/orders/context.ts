@@ -119,14 +119,18 @@ export function assertNotBelowPaid(lines: StoredLine[], discount: Discount | nul
 }
 
 /**
- * A manager approval offered for one action (`order.discount.override`). It is spent at most once,
- * however many orders the action checks (`moveLines`, a split), and only if a check needs it; `usedBy`
- * then names the manager, for the action's audit row.
+ * The discount checks of one action, settled once at its end. Each order the action touches is checked
+ * as it will be; if any is over what the acting session may allow, the manager's `token` (for
+ * `order.discount.override`) is spent once for the whole action, after every other check passed, or the
+ * action is refused. `usedBy` then names the manager, for the audit row.
  */
-export interface DiscountApproval {
+export interface DiscountGate {
   token?: OverrideToken
+  checks: { effectiveBp: number; limitBp: number; over: boolean }[]
   usedBy?: string
 }
+
+export const discountGate = (token?: OverrideToken): DiscountGate => ({ token, checks: [] })
 
 /**
  * The combined discount of an order, measured on what was granted rather than on what the amounts
@@ -156,36 +160,53 @@ export function effectiveDiscountBp(m: { granted: number; base: number }): numbe
 }
 
 /**
- * Checks the order's combined discount (as it will be after the change) against what the acting session
- * may allow: `max(session.maxDiscountBp, order approval)`; a session holding `order.discount.override` is
- * not limited. Above it, the approval's token is spent (once) or the change is refused with
- * `discount_over_limit` (`params.effectiveBp`, `params.limitBp`) so the till can ask for a manager PIN.
- * Returns the order's new approval: raised to the effective discount when a manager approved it (an
- * override, or an unlimited session), and also when `grant` (the action sets a discount, which the
- * session has just authorised within its own limit).
+ * Records the check of one order as it will be after the change: its combined discount must stay within
+ * `max(session.maxDiscountBp, the order's own stored approval)`; a session holding
+ * `order.discount.override` is not limited. Approvals never move between orders: each order is checked
+ * against its own. `slackCents` (a split only) tolerates the centime per line a proportional allocation
+ * may add to a part. Returns what the order's approval becomes: its current combined discount, so it goes
+ * down when discounts are removed (null without any discount).
  */
-export function enforceDiscountLimit(
-  ctx: Sales,
+export function checkDiscountLimit(
   session: Session,
+  gate: DiscountGate,
   after: { lines: OrderLine[]; discount: Discount | null; approvedBp: number | null },
-  approval: DiscountApproval = {},
-  grant = false
+  slackCents = 0
 ): number | null {
   const measure = discountMeasure(after.lines, after.discount)
   const effectiveBp = effectiveDiscountBp(measure)
-  if (effectiveBp === 0) return after.approvedBp
-  const raised = Math.max(after.approvedBp ?? 0, effectiveBp)
-  if (hasPermission(session, 'order.discount.override')) return raised
+  if (effectiveBp === 0) return null
   const limitBp = Math.max(session.maxDiscountBp, after.approvedBp ?? 0)
   // Exact: granted / base <= limit, without rounding a 10 % on an odd amount into 10,01 %.
-  if (measure.base > 0 && measure.granted <= limitBp * measure.base) return grant ? raised : after.approvedBp
-  if (approval.usedBy === undefined) {
-    if (approval.token === undefined) throw new AppErrorException('discount_over_limit', { effectiveBp, limitBp })
-    const used = ctx.overrides.consumeOverride(approval.token, 'order.discount.override')
-    if (!used.ok) throw new AppErrorException(used.error.code, used.error.params)
-    approval.usedBy = used.value.byUserId
+  const within = measure.base > 0 && measure.granted <= limitBp * measure.base + slackCents * 10000
+  gate.checks.push({ effectiveBp, limitBp, over: !within && !hasPermission(session, 'order.discount.override') })
+  return effectiveBp
+}
+
+/**
+ * Throws `discount_over_limit` (the first order over, `params.effectiveBp` / `params.limitBp`) when a
+ * check of the gate is over and no token was offered. Spends nothing.
+ */
+export function assertDiscountApprovable(gate: DiscountGate): void {
+  const over = gate.checks.find((c) => c.over)
+  if (over && gate.token === undefined) {
+    throw new AppErrorException('discount_over_limit', { effectiveBp: over.effectiveBp, limitBp: over.limitBp })
   }
-  return raised
+}
+
+/**
+ * Ends the action's discount checks: nothing to do when all are within limits, else the token is spent
+ * (or the action refused). Call it last, once every other check of the action has passed; the writes
+ * already made roll back with the transaction if it throws. Returns the audit data (`overriddenBy`).
+ */
+export function settleDiscount(ctx: Sales, gate: DiscountGate): { overriddenBy?: string } {
+  assertDiscountApprovable(gate)
+  if (gate.checks.some((c) => c.over) && gate.usedBy === undefined && gate.token !== undefined) {
+    const used = ctx.overrides.consumeOverride(gate.token, 'order.discount.override')
+    if (!used.ok) throw new AppErrorException(used.error.code, used.error.params)
+    gate.usedBy = used.value.byUserId
+  }
+  return gate.usedBy === undefined ? {} : { overriddenBy: gate.usedBy }
 }
 
 /**

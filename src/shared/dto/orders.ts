@@ -79,7 +79,7 @@ export interface OrderDto {
   updatedAt: string
   note: string
   discount: DiscountDto | null
-  /** The largest combined discount (bp of the discountable gross) a manager approved for this order. */
+  /** The order's combined discount (bp of the discountable gross) as last approved; null when none. */
   discountApprovedBp: number | null
   /** Every line, void ones included, by `seq`. */
   lines: OrderLineDto[]

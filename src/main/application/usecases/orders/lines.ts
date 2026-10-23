@@ -9,12 +9,13 @@ import { attemptSync, invalidInput } from '../users/outcome'
 import {
   activeLine,
   assertNotBelowPaid,
-  enforceDiscountLimit,
+  checkDiscountLimit,
+  discountGate,
   loadOrder,
   logOrder,
   moveStock,
   reread,
-  type DiscountApproval,
+  settleDiscount,
   type Sales
 } from './context'
 import { AddLineSchema, reasonOf, type AddLineInput } from './inputs'
@@ -134,18 +135,16 @@ export function createLineUseCases(ctx: Sales): LineUseCases {
     })
   }
 
-  /** Checks the order once one of its lines becomes `changed`; returns the approval and its audit data. */
+  /**
+   * Checks the order once one of its lines becomes `changed` and settles its discount check (the token,
+   * if needed, is spent here: every other check of the action has passed). Returns the audit data.
+   */
   function recheck(session: Session, order: StoredOrder, changed: StoredLine, token: OverrideToken | undefined) {
     const lines = order.lines.map((l) => (l.id === changed.id ? changed : l))
     assertNotBelowPaid(lines, order.discount, order.payments)
-    const approval: DiscountApproval = { token }
-    order.discountApprovedBp = enforceDiscountLimit(
-      ctx,
-      session,
-      { lines, discount: order.discount, approvedBp: order.discountApprovedBp },
-      approval
-    )
-    return approval.usedBy ? { overriddenBy: approval.usedBy } : {}
+    const gate = discountGate(token)
+    order.discountApprovedBp = checkDiscountLimit(session, gate, { lines, discount: order.discount, approvedBp: order.discountApprovedBp })
+    return settleDiscount(ctx, gate)
   }
 
   function setQty(session: Session, orderId: string, lineId: string, qtyMilli: number, token?: OverrideToken): OrderDto {
