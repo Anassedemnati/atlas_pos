@@ -17,6 +17,8 @@ export interface ShellPorts {
   /** The system folder dialog on the window, null when cancelled. */
   pickFolder(windowId: number, title?: string): Promise<string | null>
   pickFile(windowId: number, options: { title?: string; extensions?: string[] }): Promise<string | null>
+  /** The system "save as" dialog on the window: the path chosen, null when cancelled. */
+  saveFile(windowId: number, options: { title?: string; defaultName: string; extensions?: string[] }): Promise<string | null>
   /** Ends the application for good (the watchdog does not restart a clean exit). */
   quitToDesktop(): void
   /** Quits so that the watchdog starts the application again normally (out of safe mode). */

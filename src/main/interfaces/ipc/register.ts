@@ -8,6 +8,7 @@ import { describeError } from '../../logger'
 import { appHandlers } from './app'
 import { catalogHandlers } from './catalog'
 import { createCallContext, type CallContext, type Handler, type Handlers, type IpcDeps } from './context'
+import { invoicesHandlers } from './invoices'
 import { ordersHandlers } from './orders'
 import { salesHandlers } from './sales'
 import type { SessionStore } from './session-store'
@@ -28,6 +29,7 @@ export const allHandlers: Handlers<Channel> = {
   ...catalogHandlers,
   ...ordersHandlers,
   ...salesHandlers,
+  ...invoicesHandlers,
   ...systemHandlers,
   ...setupHandlers,
   ...tillHandlers

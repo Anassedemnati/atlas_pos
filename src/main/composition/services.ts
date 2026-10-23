@@ -2,6 +2,7 @@ import type { EventBus, Clock } from '../application/ports'
 import { createCatalogService, type CatalogService } from '../application/usecases/catalog'
 import { createCustomersService, type CustomersService } from '../application/usecases/customers'
 import { createDaysService, type DaysService } from '../application/usecases/days'
+import { createInvoicesService, type InvoicesService } from '../application/usecases/invoices'
 import { createOrdersService, type OrdersService, type SalesDeps } from '../application/usecases/orders'
 import { createTicketsService, type TicketsService } from '../application/usecases/tickets'
 import { createUsersService, type UsersService } from '../application/usecases/users'
@@ -14,7 +15,7 @@ import { createSettingsRepo, type SettingsRepo } from '../infrastructure/db/repo
 import { createUsersRepo, type UsersRepo } from '../infrastructure/db/repos/users-repo'
 import { createUnitOfWork, type UnitOfWork } from '../infrastructure/db/uow'
 import { createPrintService, type PrintService } from '../infrastructure/printing/service'
-import type { HtmlPrinter, RenderHtmlToBitmap } from '../infrastructure/printing/types'
+import type { HtmlPrinter, RenderHtmlToBitmap, RenderHtmlToPdf } from '../infrastructure/printing/types'
 import { describeError, type Logger } from '../logger'
 import type { DataPaths } from '../paths'
 
@@ -38,6 +39,8 @@ export interface ServicesDeps {
   appVersion: string
   rasterize: RenderHtmlToBitmap
   htmlPrinter?: HtmlPrinter
+  /** HTML to PDF (Electron's `printToPDF`), for invoices saved as files. */
+  renderPdf?: RenderHtmlToPdf
 }
 
 /** Every use case and engine of an open database. Rebuilt as a whole after a restore: they all hold `db`. */
@@ -52,6 +55,7 @@ export interface Services {
   tickets: TicketsService
   days: DaysService
   customers: CustomersService
+  invoices: InvoicesService
   print: PrintService
   backup: BackupEngine
   /** The backup destinations as configured now. */
@@ -107,6 +111,7 @@ export function openServices(deps: ServicesDeps): Services {
       tickets: createTicketsService(sales),
       days: createDaysService(sales),
       customers: createCustomersService(sales),
+      invoices: createInvoicesService({ db, uow, clock, spooler: print.queue, ...(deps.renderPdf ? { renderPdf: deps.renderPdf } : {}) }),
       print,
       backup,
       targets,

@@ -5,6 +5,7 @@ import { createEventBus, type DomainEvent } from '../../src/main/application/eve
 import type { EventBus, PrintJob, PrintSpooler } from '../../src/main/application/ports'
 import { createCustomersService, type CustomersService } from '../../src/main/application/usecases/customers'
 import { createDaysService, type DaysService } from '../../src/main/application/usecases/days'
+import { createInvoicesService, type InvoicesService } from '../../src/main/application/usecases/invoices'
 import { createOrdersService, type OrdersService } from '../../src/main/application/usecases/orders'
 import { createTicketsService, type TicketsService } from '../../src/main/application/usecases/tickets'
 import { createUsersService, type UsersService } from '../../src/main/application/usecases/users'
@@ -200,6 +201,9 @@ export interface SalesHarness {
   tickets: TicketsService
   days: DaysService
   customers: CustomersService
+  invoices: InvoicesService
+  /** The HTML of every PDF the fake PDF renderer was asked for. */
+  pdfs: string[]
   spooler: RecordingSpooler
   /** Labels passed to the full backup trigger. */
   backups: string[]
@@ -244,12 +248,14 @@ export function salesHarness(startIso = local(10, 22, 11), options: SalesHarness
       return {}
     }
   }
+  const pdfs: string[] = []
+  const spoolerInUse = options.spooler ? options.spooler({ t, clock, bus, uow, settings }) : spooler
   const deps = {
     db: t.db,
     uow,
     clock,
     settings,
-    spooler: options.spooler ? options.spooler({ t, clock, bus, uow, settings }) : spooler,
+    spooler: spoolerInUse,
     overrides: users,
     backup
   }
@@ -273,6 +279,17 @@ export function salesHarness(startIso = local(10, 22, 11), options: SalesHarness
     tickets: createTicketsService(deps),
     days: createDaysService(deps),
     customers: createCustomersService(deps),
+    invoices: createInvoicesService({
+      db: t.db,
+      uow,
+      clock,
+      spooler: spoolerInUse,
+      renderPdf: async (html) => {
+        pdfs.push(html)
+        return Buffer.from('%PDF-1.4 fake')
+      }
+    }),
+    pdfs,
     spooler,
     backups,
     published,

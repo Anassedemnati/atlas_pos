@@ -131,3 +131,26 @@ export interface ZData {
   /** Duplicates printed during the day. */
   reprints: number
 }
+
+/** What an invoice is made out to, copied from the customer when it was issued (a later edit of the customer never changes it). */
+export interface InvoiceCustomerDto {
+  name: string
+  companyName: string
+  address: string
+  ice: string
+  phone: string
+}
+
+/** An A4 invoice (`F-2026-00001`): immutable, made from one closed sale ticket. */
+export interface InvoiceDto {
+  id: string
+  numberLabel: string
+  ticketId: string
+  /** The label of the ticket it is made from (`000123`). */
+  ticketLabel: string
+  createdAt: string
+  userId: string
+  /** The ticket's total TTC. */
+  totalCents: number
+  customer: InvoiceCustomerDto
+}

@@ -6,7 +6,8 @@ import type { SettingsRepo } from '../db/repos/settings-repo'
 import { createTicketsRepo } from '../db/repos/tickets-repo'
 import { EscPos } from './escpos'
 import { htmlToEscPos } from './render-html'
-import { invoiceA4Html, type InvoiceDoc } from './templates/invoice-a4'
+import { readInvoiceDoc } from './invoice-source'
+import { invoiceA4Html } from './templates/invoice-a4'
 import { kitchenDoc } from './templates/kitchen'
 import { receiptDoc } from './templates/receipt'
 import { zReportDoc } from './templates/z-report'
@@ -119,18 +120,9 @@ export function createJobRenderer(deps: JobRendererDeps): JobRenderer {
       }
       case 'invoice': {
         const { invoiceId } = payloadOf(InvoiceJobPayload, job.kind, job.payload)
-        const row = db.prepare('SELECT number_label, created_at, customer_json, snapshot_json FROM invoices WHERE id = ?').get(invoiceId) as
-          | { number_label: string; created_at: string; customer_json: string; snapshot_json: string }
-          | undefined
-        if (!row) throw new PermanentPrintError('invoice_not_found', `invoice ${invoiceId} does not exist`)
-        const snapshot = JSON.parse(row.snapshot_json) as TicketSnapshot
-        const invoice: InvoiceDoc = {
-          numberLabel: row.number_label,
-          createdAt: row.created_at,
-          customer: JSON.parse(row.customer_json) as InvoiceDoc['customer'],
-          snapshot
-        }
-        return finish({ ...invoiceA4Html(invoice, snapshot.receipt.lang), raster: false })
+        const invoice = readInvoiceDoc(db, invoiceId)
+        if (!invoice) throw new PermanentPrintError('invoice_not_found', `invoice ${invoiceId} does not exist`)
+        return finish({ ...invoiceA4Html(invoice, invoice.snapshot.receipt.lang), raster: false })
       }
       case 'prebill': {
         // The pre-bill is frozen in the job: what the customer was shown is what a retry prints.

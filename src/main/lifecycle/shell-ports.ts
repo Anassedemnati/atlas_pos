@@ -1,4 +1,4 @@
-import { BrowserWindow, dialog, screen, webContents, type OpenDialogOptions } from 'electron'
+import { BrowserWindow, dialog, screen, webContents, type OpenDialogOptions, type SaveDialogOptions } from 'electron'
 import type { AtlasEvent } from '@shared/dto'
 import { EVENT_CHANNEL } from '@shared/ipc/channels'
 import { detectHardware } from '../infrastructure/hardware/detect'
@@ -29,6 +29,14 @@ async function openDialog(windowId: number, options: OpenDialogOptions): Promise
   return result.canceled ? null : (result.filePaths[0] ?? null)
 }
 
+async function saveDialog(windowId: number, options: SaveDialogOptions): Promise<string | null> {
+  const contents = webContents.fromId(windowId)
+  const owner = contents ? BrowserWindow.fromWebContents(contents) : null
+  // `dialog.showSaveDialog` is read at call time (not captured), so that a test can replace it.
+  const result = owner ? await dialog.showSaveDialog(owner, options) : await dialog.showSaveDialog(options)
+  return result.canceled || !result.filePath ? null : result.filePath
+}
+
 /** Electron's side of the IPC handlers: dialogs, hardware, the customer display, reloading the till. */
 export function createShellPorts(deps: {
   windows: AppWindows
@@ -47,6 +55,12 @@ export function createShellPorts(deps: {
     pickFile: (windowId, { title, extensions }) =>
       openDialog(windowId, {
         properties: ['openFile'],
+        ...(title ? { title } : {}),
+        ...(extensions ? { filters: [{ name: extensions.join(', '), extensions }] } : {})
+      }),
+    saveFile: (windowId, { title, defaultName, extensions }) =>
+      saveDialog(windowId, {
+        defaultPath: defaultName,
         ...(title ? { title } : {}),
         ...(extensions ? { filters: [{ name: extensions.join(', '), extensions }] } : {})
       }),

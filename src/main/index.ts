@@ -10,7 +10,7 @@ import { createRuntime, type Runtime } from './composition/runtime'
 import type { Services } from './composition/services'
 import { createSetupService } from './application/usecases/setup'
 import { sweepFinishedSetup } from './application/usecases/setup/draft-store'
-import { createElectronHtmlPrinter } from './infrastructure/printing/electron/os-print'
+import { createElectronHtmlPrinter, renderHtmlToPdf } from './infrastructure/printing/electron/os-print'
 import { renderHtmlToBitmap } from './infrastructure/printing/electron/render-html-to-bitmap'
 import { forwardEvents } from './interfaces/ipc/events'
 import { register } from './interfaces/ipc/register'
@@ -184,6 +184,7 @@ async function start(): Promise<void> {
     appVersion: app.getVersion(),
     rasterize: renderHtmlToBitmap,
     htmlPrinter,
+    renderPdf: renderHtmlToPdf,
     unclean: runningLock.wasUnclean,
     safeMode
   })

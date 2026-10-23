@@ -5,6 +5,7 @@ import { appChannels } from './ipc/app'
 import { catalogChannels } from './ipc/catalog'
 import { configChannels } from './ipc/config'
 import type { ChannelDef } from './ipc/define'
+import { invoicesChannels } from './ipc/invoices'
 import { ordersChannels } from './ipc/orders'
 import { customersChannels, daysChannels, ticketsChannels } from './ipc/sales'
 import { setupChannels, techChannels } from './ipc/setup'
@@ -25,6 +26,7 @@ export const IpcContract = {
   ...ticketsChannels,
   ...daysChannels,
   ...customersChannels,
+  ...invoicesChannels,
   ...settingsChannels,
   ...backupChannels,
   ...printingChannels,
