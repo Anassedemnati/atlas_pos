@@ -133,8 +133,9 @@ describe('orders: the discount limit, own percentage plus manager approvals', ()
       payAll(h.cashier, o.id)
       expect(h.tickets.closeOrder(h.waiter, o.id)).toMatchObject(over(700, 1))
       // The cashier, or a manager token, can.
+      // Growing the bill records nothing, even on a token.
       expect(ok(addLine(h.waiter, o.id, h.fx.products.the, 1000, ok(await overrideToken())))).toMatchObject({
-        approvedCents: 700,
+        approvedCents: 0,
         totals: { totalCents: 7500 }
       })
       expect(h.eventRows('order.line_added').at(-1)).toMatchObject({ data: { overriddenBy: h.seeded.users.amine } })
@@ -197,12 +198,13 @@ describe('orders: the discount limit, own percentage plus manager approvals', ()
       payAll(h.cashier, o.id)
       expect(ok(h.tickets.closeOrder(h.cashier, o.id)).totalCents).toBe(4900)
 
-      // A manager's own void records the same way, only when the state needed it.
+      // A manager's own void is not an approval of a budget: nothing is recorded, the close needs a token.
       const m = order(h.cashier, h.fx.products.tajine, h.fx.products.tajine)
       ok(h.orders.setTicketDiscount(h.cashier, m.id, amount(1400)))
-      expect(ok(h.orders.voidLine(h.manager, m.id, m.lines[1]!.id, ''))).toMatchObject({ approvedCents: 1400 })
-      payAll(h.waiter, m.id)
-      expect(ok(h.tickets.closeOrder(h.waiter, m.id)).totalCents).toBe(5600)
+      expect(ok(h.orders.voidLine(h.manager, m.id, m.lines[1]!.id, ''))).toMatchObject({ approvedCents: 0 })
+      payAll(h.cashier, m.id)
+      expect(h.tickets.closeOrder(h.cashier, m.id)).toMatchObject(over(1400, 701))
+      expect(ok(h.tickets.closeOrder(h.cashier, m.id, ok(await overrideToken()))).totalCents).toBe(5600)
     })
   })
 
@@ -310,15 +312,17 @@ describe('orders: the discount limit, own percentage plus manager approvals', ()
       expect(code(h.orders.setTicketDiscount(h.cashier, o.id, pct(10000)))).toBe('discount_over_limit')
     })
 
-    it('a manager budget is shared out: each part gets at most its own discount; allowed with an override spent once', async () => {
+    it('a manager budget is shared out: each piece takes what it needs, in order, and the rest is dropped; allowed with an override spent once', async () => {
       const o = order(h.cashier, h.fx.products.the, h.fx.products.couscous, h.fx.products.tajine)
       ok(h.orders.setLineDiscount(h.manager, o.id, o.lines[0]!.id, pct(10000)))
       ok(h.orders.setLineDiscount(h.manager, o.id, o.lines[2]!.id, amount(2000)))
       expect(approvalsOf(o.id)).toEqual({ bp: 0, cents: 3200 })
       const [tea] = ok(h.tickets.splitAndClose(h.cashier, o.id, [{ lineIds: [o.lines[0]!.id], payments: [] }]))
       expect(tea!.totalCents).toBe(0)
-      expect(approvalsOf(tea!.orderId)).toEqual({ bp: 0, cents: 1200 })
-      expect(approvalsOf(o.id)).toEqual({ bp: 0, cents: 2000 })
+      // The tea part needs 12,00 less its rounding centime; what is left (20,00 off 165,00, over 10 %)
+      // needs 20,00 less its centime out of what is left of the budget: 31,98 of the 32,00, never more.
+      expect(approvalsOf(tea!.orderId)).toEqual({ bp: 0, cents: 1199 })
+      expect(approvalsOf(o.id)).toEqual({ bp: 0, cents: 1999 })
 
       // Without a budget, a part over the cashier's limit refuses the whole split until a manager approves.
       const b = order(h.cashier, h.fx.products.the, h.fx.products.couscous)
@@ -359,8 +363,8 @@ describe('orders: the discount limit, own percentage plus manager approvals', ()
       const b = order(h.cashier, h.fx.products.the)
       expect(h.orders.moveLines(h.cashier, a.id, [a.lines[0]!.id], b.id)).toMatchObject(over(1000, 221))
       ok(h.orders.moveLines(h.cashier, a.id, [a.lines[0]!.id], b.id, ok(await overrideToken())))
-      // The target needed the manager: the 10,00 it now carries is recorded on it, nothing on the source.
-      expect(approvalsOf(b.id)).toEqual({ bp: 0, cents: 1000 })
+      // The target grew: nothing is recorded on it (closing it will need the manager), nothing on the source.
+      expect(approvalsOf(b.id)).toEqual({ bp: 0, cents: 0 })
       expect(approvalsOf(a.id)).toEqual({ bp: 0, cents: 0 })
     })
 
@@ -385,8 +389,112 @@ describe('orders: the discount limit, own percentage plus manager approvals', ()
       expect(h.orders.mergeTables(h.cashier, small.id, target.id)).toMatchObject(over(3030, 1773))
       ok(h.orders.mergeTables(h.cashier, small.id, target.id, ok(await overrideToken())))
       expect(h.eventRows('order.merged').at(-1)).toMatchObject({ data: { overriddenBy: h.seeded.users.amine } })
-      // The manager's pass is recorded: the 30,30 less the 17,70 the 10 % covers.
-      expect(approvalsOf(target.id)).toEqual({ bp: 1000, cents: 1260 })
+      // A merge grows the target: the token's pass records nothing.
+      expect(approvalsOf(target.id)).toEqual({ bp: 1000, cents: 0 })
+    })
+  })
+
+  describe('the budget is a partition; incidental manager actions mint nothing (round 5 probes)', () => {
+    let cheap: string
+    let big: string
+    let steak: string
+    beforeEach(() => {
+      cheap = product('cheap', 1000)
+      big = product('big', 9000)
+      steak = product('steak', 50000)
+    })
+    /** What the tickets took off beyond 10 % of their gross, in centimes. */
+    const beyondOwnLimit = (): number =>
+      (h.t.db.prepare('SELECT snapshot_json AS s FROM tickets').all() as { s: string }[])
+        .map((row) => (JSON.parse(row.s) as { totals: { grossCents: number; totalCents: number } }).totals)
+        .reduce((sum, t) => sum + (t.grossCents - t.totalCents) - Math.round(t.grossCents / 10), 0)
+
+    it('S1: the part that carries the manager line discount takes the budget; what is left gets none', () => {
+      const o = order(h.cashier, big, steak, steak)
+      ok(h.orders.setLineDiscount(h.manager, o.id, o.lines[0]!.id, pct(10000)))
+      ok(h.orders.setTicketDiscount(h.cashier, o.id, pct(1000)))
+      expect(approvalsOf(o.id)).toEqual({ bp: 1000, cents: 9000 })
+      const [part] = ok(h.tickets.splitAndClose(h.cashier, o.id, [{ lineIds: [o.lines[0]!.id], payments: [] }]))
+      // 90,00 off: the 10 % ticket approval covers 9,00 and a centime, the budget the 80,99 beyond.
+      expect(approvalsOf(part!.orderId)).toEqual({ bp: 1000, cents: 8099 })
+      expect(ok(h.orders.getOrder(h.cashier, o.id))).toMatchObject({ discount: amount(10000), approvedTicketBp: 1000, approvedCents: 0 })
+      expect(h.orders.setLineDiscount(h.cashier, o.id, o.lines[1]!.id, amount(9000))).toMatchObject(over(19000, 10002))
+      payAll(h.cashier, o.id)
+      expect(ok(h.tickets.closeOrder(h.cashier, o.id)).totalCents).toBe(90000)
+      expect(beyondOwnLimit()).toBeLessThanOrEqual(9000)
+    })
+
+    it('S3: a manager approval cannot be extracted again on every split round', () => {
+      const o = order(h.cashier, big, steak)
+      ok(h.orders.setLineDiscount(h.manager, o.id, o.lines[0]!.id, pct(10000)))
+      ok(h.orders.setLineDiscount(h.cashier, o.id, o.lines[1]!.id, amount(1)))
+      ok(h.orders.setTicketDiscount(h.cashier, o.id, pct(1000)))
+      ok(h.tickets.splitAndClose(h.cashier, o.id, [{ lineIds: [o.lines[0]!.id], payments: [] }]))
+      expect(approvalsOf(o.id)).toEqual({ bp: 1000, cents: 0 })
+      for (let round = 0; round < 3; round++) {
+        ok(h.orders.setTicketDiscount(h.cashier, o.id, pct(1000)))
+        const added = ok(addLine(h.cashier, o.id, steak)).lines.at(-1)!.id
+        expect(code(h.orders.setLineDiscount(h.cashier, o.id, added, amount(9000)))).toBe('discount_over_limit')
+        const [part] = ok(h.tickets.splitAndClose(h.cashier, o.id, [{ lineIds: [added], payments: [{ methodCode: 'cash', amountCents: 45000 }] }]))
+        expect(part!.totalCents).toBe(45000)
+        expect(approvalsOf(o.id)).toEqual({ bp: 1000, cents: 0 })
+      }
+      payAll(h.cashier, o.id)
+      ok(h.tickets.closeOrder(h.cashier, o.id))
+      expect(beyondOwnLimit()).toBeLessThanOrEqual(9000)
+    })
+
+    it('S4: without a ticket percentage, the cashier own line discount in what is left becomes no budget', () => {
+      const o = order(h.cashier, big, steak, steak, steak, steak)
+      ok(h.orders.setLineDiscount(h.manager, o.id, o.lines[0]!.id, pct(10000)))
+      // 90,00 on the first steak: within 10 % of 2 090,00.
+      ok(h.orders.setLineDiscount(h.cashier, o.id, o.lines[1]!.id, amount(9000)))
+      expect(approvalsOf(o.id)).toEqual({ bp: 0, cents: 9000 })
+      const [part] = ok(h.tickets.splitAndClose(h.cashier, o.id, [{ lineIds: [o.lines[0]!.id], payments: [] }]))
+      expect(approvalsOf(part!.orderId)).toEqual({ bp: 0, cents: 8999 })
+      expect(approvalsOf(o.id)).toEqual({ bp: 0, cents: 0 })
+      ok(h.orders.voidLine(h.cashier, o.id, o.lines[2]!.id, ''))
+      ok(h.orders.voidLine(h.cashier, o.id, o.lines[3]!.id, ''))
+      expect(h.orders.voidLine(h.cashier, o.id, o.lines[4]!.id, '')).toMatchObject(over(9000, 5001))
+      payAll(h.cashier, o.id)
+      expect(ok(h.tickets.closeOrder(h.cashier, o.id)).totalCents).toBe(91000)
+    })
+
+    it('M2: what a split leaves carries no budget into a merge', () => {
+      const o = order(h.cashier, big, steak, steak)
+      const t = order(h.cashier, steak, steak)
+      ok(h.orders.setLineDiscount(h.manager, o.id, o.lines[0]!.id, pct(10000)))
+      ok(h.orders.setTicketDiscount(h.cashier, o.id, pct(1000)))
+      ok(h.tickets.splitAndClose(h.cashier, o.id, [{ lineIds: [o.lines[0]!.id], payments: [] }]))
+      ok(h.orders.setLineDiscount(h.cashier, o.id, o.lines[1]!.id, amount(1)))
+      ok(h.orders.setTicketDiscount(h.cashier, o.id, null))
+      expect(approvalsOf(o.id)).toEqual({ bp: 0, cents: 0 })
+      ok(h.orders.mergeTables(h.cashier, o.id, t.id))
+      expect(approvalsOf(t.id)).toEqual({ bp: 0, cents: 0 })
+      ok(h.orders.setTicketDiscount(h.cashier, t.id, pct(1000)))
+      expect(code(h.orders.setLineDiscount(h.cashier, t.id, t.lines[1]!.id, amount(9000)))).toBe('discount_over_limit')
+    })
+
+    it('S5: a manager adding a line, or voiding one, on an order holding only the cashier own discount mints no budget', () => {
+      const o = order(h.cashier, steak, steak, steak, steak, steak, steak, steak, steak, steak, steak)
+      ok(h.orders.setLineDiscount(h.cashier, o.id, o.lines[0]!.id, amount(50000)))
+      expect(ok(addLine(h.manager, o.id, cheap))).toMatchObject({ approvedCents: 0 })
+      expect(h.orders.voidLine(h.cashier, o.id, o.lines[1]!.id, '')).toMatchObject(over(50000, 45101))
+      expect(ok(h.orders.voidLine(h.manager, o.id, o.lines[1]!.id, ''))).toMatchObject({ approvedCents: 0 })
+      expect(h.orders.voidLine(h.cashier, o.id, o.lines[2]!.id, '')).toMatchObject(over(50000, 40101))
+    })
+
+    it('control A: alternating ticket kinds and a manager free item leave no budget behind', () => {
+      const o = order(h.cashier, steak, big, cheap)
+      ok(h.orders.setTicketDiscount(h.manager, o.id, amount(5000)))
+      expect(approvalsOf(o.id)).toEqual({ bp: 0, cents: 5000 })
+      ok(h.orders.setTicketDiscount(h.cashier, o.id, pct(1000)))
+      expect(approvalsOf(o.id)).toEqual({ bp: 1000, cents: 0 })
+      ok(h.orders.setTicketDiscount(h.cashier, o.id, amount(5000)))
+      expect(approvalsOf(o.id)).toEqual({ bp: 0, cents: 0 })
+      expect(ok(h.orders.setFree(h.manager, o.id, o.lines[1]!.id, true, 'Geste'))).toMatchObject({ approvedCents: 0 })
+      expect(h.orders.setTicketDiscount(h.cashier, o.id, pct(2000))).toMatchObject(over(10200, 5102))
+      expect(h.orders.voidLine(h.cashier, o.id, o.lines[0]!.id, '')).toMatchObject(over(1000, 101))
     })
   })
 

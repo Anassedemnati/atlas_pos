@@ -2,6 +2,7 @@ import type { TicketDto } from '@shared/dto'
 import { newId } from '@shared/ids'
 import type { Result } from '@shared/result'
 import { activeLines, CASH_METHOD_CODE, paymentState, unsentLines } from '../../../domain/order/order'
+import type { Discount } from '../../../domain/order/discount'
 import { splitByItems } from '../../../domain/order/split'
 import { computeTotals, priceLines } from '../../../domain/order/totals'
 import type { OverrideToken, Session } from '../../../domain/users/session'
@@ -15,9 +16,12 @@ import {
   approvalsOf,
   assertDiscountApprovable,
   checkDiscountLimit,
+  discountFigures,
   discountGate,
+  discountLimitCents,
   loadOrder,
   logOrder,
+  pctTermCents,
   settleDiscount,
   type Approvals,
   type DiscountGate,
@@ -42,8 +46,7 @@ export interface CloseUseCases {
    * In one transaction: whatever the kitchen has not received is sent, the next ticket number is taken
    * (gap-free), the immutable ticket is written with its full snapshot, the order is closed, and the
    * receipt (and, for cash, a drawer pulse) is queued. Announces `ticket.closed`. The order's discount is
-   * checked against the closing session and the order's approvals (`discount_over_limit` unless
-   * `overrideToken`, whose approval is then recorded with the closed order).
+   * checked against the closing session and the order's approvals (`discount_over_limit` unless `overrideToken`).
    */
   closeOrder(session: Session, orderId: string, overrideToken?: OverrideToken): Result<TicketDto>
   /**
@@ -52,8 +55,10 @@ export interface CloseUseCases {
    * whole bill. Lines in no group stay on the order with what is left of the ticket discount (as an
    * amount); an order left without an active line is cancelled. Refused with `has_payments` once the
    * order has taken a payment. Each part, and what is left, inherits the order's ticket percentage
-   * approval and gets of its budget at most its own discount, and is checked against the session; one
-   * over the limit refuses the whole split (`discount_over_limit`) unless `overrideToken`, spent last.
+   * approval; the budget is shared out, parts first and in order, each piece taking what its discount
+   * needs beyond the session's own limit and the ticket percentage, until the budget runs out. Each is
+   * then checked against the session; one over the limit refuses the whole split
+   * (`discount_over_limit`) unless `overrideToken`, spent last.
    */
   splitAndClose(session: Session, orderId: string, groups: SplitGroup[], overrideToken?: OverrideToken): Result<TicketDto[]>
 }
@@ -100,7 +105,7 @@ export function closeInTx(
   if (activeLines(order.lines).length === 0) throw new AppErrorException('order_empty')
   const { due } = paymentState(computeTotals(order.lines, order.discount).total, order.payments)
   if (due > 0) throw new AppErrorException('not_paid', { dueCents: due })
-  const checked = checkDiscountLimit(session, check.gate, { lines: order.lines, discount: order.discount }, approvalsOf(order))
+  checkDiscountLimit(session, check.gate, { lines: order.lines, discount: order.discount }, approvalsOf(order))
   // A token is spent only once all the rest is done (it all rolls back if spending it fails).
   if (check.settle) assertDiscountApprovable(ctx, check.gate)
   sendLines(tx, ctx, session, order, unsentLines(order.lines))
@@ -135,7 +140,7 @@ export function closeInTx(
   }
   ctx.tickets.insert(tx, ticket)
   const audit = check.settle ? settleDiscount(ctx, check.gate) : {}
-  logOrder(tx, ctx, session, { ...order, status: 'closed', ...checked.approvals }, 'ticket.closed', {
+  logOrder(tx, ctx, session, { ...order, status: 'closed' }, 'ticket.closed', {
     ticketId: ticket.id,
     label: ticket.label,
     totalCents: ticket.totalCents,
@@ -168,14 +173,20 @@ export function createCloseUseCases(ctx: Sales): CloseUseCases {
       const shareOf = (line: StoredLine): number => priced.get(line.id)?.ticketDiscount ?? 0
       const asAmount = (cents: number) => (order.discount ? { kind: 'amount' as const, cents, reason: order.discount.reason } : null)
       /**
-       * The approvals of a part: the ticket percentage is inherited (its share follows the lines), and
-       * of the budget at most the part's own line discounts and ticket-discount shares (free lines aside).
+       * The approvals of a piece (a part, then what is left): the ticket percentage is inherited (its share
+       * follows the lines). A piece whose discount the session's own limit and that percentage do not cover
+       * takes of the budget what the percentage leaves uncovered (the budget stacks on the percentage, not
+       * on the own limit), out of what the pieces before it left. The pieces together never hold more
+       * than the order did.
        */
-      const approvalsOfPart = (lines: StoredLine[]): Approvals => {
-        const discount = activeLines(lines)
-          .filter((l) => !l.free)
-          .reduce((sum, l) => sum + (priced.get(l.id)?.lineDiscount ?? 0) + shareOf(l), 0)
-        return { approvedTicketBp: order.approvedTicketBp, approvedCents: Math.min(order.approvedCents, discount) }
+      let budgetLeft = order.approvedCents
+      const approvalsOfPiece = (lines: StoredLine[], discount: Discount | null): Approvals => {
+        const figures = discountFigures(lines, discount)
+        const inherited = { approvedTicketBp: order.approvedTicketBp, approvedCents: 0 }
+        const needs = figures.discountCents > discountLimitCents(session, inherited, figures)
+        const share = needs ? Math.min(budgetLeft, figures.discountCents - pctTermCents(order.approvedTicketBp, figures)) : 0
+        budgetLeft -= share
+        return { ...inherited, approvedCents: share }
       }
       const gate = discountGate(token)
       const now = tx.clock.now().toISOString()
@@ -193,7 +204,7 @@ export function createCloseUseCases(ctx: Sales): CloseUseCases {
           openedAt: now,
           updatedAt: now,
           discount,
-          ...approvalsOfPart(partLines)
+          ...approvalsOfPiece(partLines, discount)
         })
         group.lineIds.forEach((lineId, k) => ctx.orders.moveLine(tx, lineId, childId, k + 1))
         appendEvent(
@@ -214,7 +225,8 @@ export function createCloseUseCases(ctx: Sales): CloseUseCases {
       const moved = new Set(groups.flatMap((g) => g.lineIds))
       const left = order.lines.filter((l) => !moved.has(l.id))
       const leftDiscount = asAmount(activeLines(left).reduce((sum, l) => sum + shareOf(l), 0))
-      const leftApprovals = checkDiscountLimit(session, gate, { lines: left, discount: leftDiscount }, approvalsOfPart(left)).approvals
+      const leftApprovals = checkDiscountLimit(session, gate, { lines: left, discount: leftDiscount }, approvalsOfPiece(left, leftDiscount), true)
+        .approvals
       // Last: every part is closed and every other check passed.
       const audit = settleDiscount(ctx, gate)
       logOrder(

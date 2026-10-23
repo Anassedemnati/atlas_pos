@@ -51,7 +51,7 @@ export interface DiscountUseCases {
    * Offers a line (`free` true, with a reason) or charges it again. Offering needs `order.free_item`, or
    * `overrideToken` for it (spent, logged as `overriddenBy`). Offering a line shrinks what the other
    * discounts are measured on, so the order's discount is checked again (`discount_over_limit`, or
-   * `discountOverrideToken`, whose approval is then recorded on the order).
+   * `discountOverrideToken`, whose approval of the offered state is then recorded on the order).
    */
   setFree(
     session: Session,
@@ -158,9 +158,9 @@ export function createDiscountUseCases(ctx: Sales): DiscountUseCases {
       const changed = { ...activeLine(order, lineId), free, freeReason: reason }
       const lines = replaced(order, changed)
       assertNotBelowPaid(lines, order.discount, order.payments)
-      // A base change: checked against the approvals the order has; a manager's pass is recorded.
+      // A base change: checked against the approvals the order has; offering a line shrinks the base.
       const gate = discountGate(discountToken)
-      const check = checkDiscountLimit(session, gate, { lines, discount: order.discount }, approvalsOf(order))
+      const check = checkDiscountLimit(session, gate, { lines, discount: order.discount }, approvalsOf(order), free)
       order.approvedCents = check.approvals.approvedCents
       ctx.orders.updateLine(tx, changed)
       // Tokens are spent last, the discount token checked (not spent) before the free-item one is spent.
