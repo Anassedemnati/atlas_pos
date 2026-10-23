@@ -42,7 +42,14 @@ export const ordersChannels = {
     'session'
   ),
   'orders.setLineQty': def<OrderDto>()(z.strictObject({ ...line, qtyMilli: int, overrideTokenId: tokenId }), 'session'),
-  'orders.voidLine': def<OrderDto>()(z.strictObject({ ...line, reason: text, overrideTokenId: tokenId }), 'session'),
+  /**
+   * `overrideTokenId` covers the order's discount check; `voidOverrideTokenId` is a manager's approval of
+   * voiding a line already sent to the kitchen (`order.void_sent`), for a user without that permission.
+   */
+  'orders.voidLine': def<OrderDto>()(
+    z.strictObject({ ...line, reason: text, overrideTokenId: tokenId, voidOverrideTokenId: tokenId }),
+    'session'
+  ),
   'orders.setLineDiscount': def<OrderDto>()(
     z.strictObject({ ...line, discount: discount.nullable(), overrideTokenId: tokenId }),
     'session'

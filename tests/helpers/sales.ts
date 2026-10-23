@@ -4,6 +4,7 @@ import type { Result } from '../../src/shared/result'
 import { createEventBus, type DomainEvent } from '../../src/main/application/events'
 import type { EventBus, PrintJob, PrintSpooler } from '../../src/main/application/ports'
 import { createCustomersService, type CustomersService } from '../../src/main/application/usecases/customers'
+import { createFloorService, type FloorService } from '../../src/main/application/usecases/config/floor'
 import { createDaysService, type DaysService } from '../../src/main/application/usecases/days'
 import { createInvoicesService, type InvoicesService } from '../../src/main/application/usecases/invoices'
 import { createOrdersService, type OrdersService } from '../../src/main/application/usecases/orders'
@@ -202,6 +203,7 @@ export interface SalesHarness {
   days: DaysService
   customers: CustomersService
   invoices: InvoicesService
+  floor: FloorService
   /** The HTML of every PDF the fake PDF renderer was asked for. */
   pdfs: string[]
   spooler: RecordingSpooler
@@ -289,6 +291,7 @@ export function salesHarness(startIso = local(10, 22, 11), options: SalesHarness
         return Buffer.from('%PDF-1.4 fake')
       }
     }),
+    floor: createFloorService({ db: t.db, uow }),
     pdfs,
     spooler,
     backups,

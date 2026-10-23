@@ -1,5 +1,6 @@
 import type { EventBus, Clock } from '../application/ports'
 import { createCatalogService, type CatalogService } from '../application/usecases/catalog'
+import { createFloorService, type FloorService } from '../application/usecases/config/floor'
 import { createCustomersService, type CustomersService } from '../application/usecases/customers'
 import { createDaysService, type DaysService } from '../application/usecases/days'
 import { createInvoicesService, type InvoicesService } from '../application/usecases/invoices'
@@ -56,6 +57,7 @@ export interface Services {
   days: DaysService
   customers: CustomersService
   invoices: InvoicesService
+  floor: FloorService
   print: PrintService
   backup: BackupEngine
   /** The backup destinations as configured now. */
@@ -106,11 +108,12 @@ export function openServices(deps: ServicesDeps): Services {
       settings,
       usersRepo: createUsersRepo(db),
       users,
-      catalog: createCatalogService({ db, uow, settings }),
+      catalog: createCatalogService({ db, uow, settings, overrides: users }),
       orders: createOrdersService(sales),
       tickets: createTicketsService(sales),
       days: createDaysService(sales),
       customers: createCustomersService(sales),
+      floor: createFloorService({ db, uow }),
       invoices: createInvoicesService({ db, uow, clock, spooler: print.queue, ...(deps.renderPdf ? { renderPdf: deps.renderPdf } : {}) }),
       print,
       backup,

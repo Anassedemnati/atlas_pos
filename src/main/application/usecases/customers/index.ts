@@ -28,6 +28,8 @@ const SEARCH_LIMIT = 20
 export interface CustomersService {
   /** Up to 20 customers whose name, phone, company name or ICE contains `q`; none for a blank query. */
   searchCustomers(session: Session, q: string): Result<CustomerDto[]>
+  /** A customer by id, null when there is none (the customer of an order). */
+  getCustomer(session: Session, id: string): Result<CustomerDto | null>
   /**
    * Creates (no `id`) or edits a customer; on an edit a field left out is kept. A company (`isCompany`)
    * needs a 15-digit ICE (`invalid_input`, field `ice`), as an invoice prints it.
@@ -81,6 +83,7 @@ export function createCustomersService(deps: SalesDeps): CustomersService {
         const query = typeof q === 'string' ? q.trim() : ''
         return query === '' ? [] : ctx.customers.search(query, SEARCH_LIMIT)
       }),
+    getCustomer: (_session, id) => attemptSync(() => (typeof id === 'string' ? ctx.customers.get(id) : undefined) ?? null),
     saveCustomer: (session, input) => attemptSync(() => save(session, input))
   }
 }

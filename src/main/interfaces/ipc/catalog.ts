@@ -1,6 +1,6 @@
 import type { catalogChannels } from '@shared/ipc/catalog'
 import { parseCatalogSheet } from '../../infrastructure/import/catalog-sheet'
-import { ok, type Handlers } from './context'
+import { ok, overrideToken as token, type Handlers } from './context'
 
 /** Categories, products, modifiers, menus, stock, the Excel / CSV sheet. */
 export const catalogHandlers: Handlers<keyof typeof catalogChannels> = {
@@ -9,8 +9,8 @@ export const catalogHandlers: Handlers<keyof typeof catalogChannels> = {
   'catalog.deleteCategory': ({ id }, ctx) => ctx.services().catalog.deleteCategory(ctx.session(), id),
   'catalog.saveProduct': (input, ctx) => ctx.services().catalog.saveProduct(ctx.session(), input),
   'catalog.deleteProduct': ({ id }, ctx) => ctx.services().catalog.deleteProduct(ctx.session(), id),
-  'catalog.quickCreateProduct': ({ barcode, name, priceCents, categoryId }, ctx) =>
-    ctx.services().catalog.quickCreateProduct(ctx.session(), barcode, name, priceCents, categoryId),
+  'catalog.quickCreateProduct': ({ barcode, name, priceCents, categoryId, overrideTokenId }, ctx) =>
+    ctx.services().catalog.quickCreateProduct(ctx.session(), barcode, name, priceCents, categoryId, token(overrideTokenId)),
   'catalog.adjustStock': ({ productId, deltaMilli, reason }, ctx) =>
     ctx.services().catalog.adjustStock(ctx.session(), productId, deltaMilli, reason),
   'catalog.saveModifierGroup': (input, ctx) => ctx.services().catalog.saveModifierGroup(ctx.session(), input),

@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import type { CatalogDto, ImportRow, ImportSummary, ParsedCatalogSheet } from '../dto'
-import { bytes, def, id, int, localizedName, none, text } from './define'
+import { bytes, def, id, int, localizedName, none, text, tokenId } from './define'
 
 const nullableText = z.string().max(500).nullable()
 
@@ -53,9 +53,9 @@ export const catalogChannels = {
   'catalog.deleteCategory': def<{ id: string }>()(z.strictObject({ id }), 'session'),
   'catalog.saveProduct': def<{ id: string }>()(product, 'session'),
   'catalog.deleteProduct': def<{ outcome: 'deleted' | 'deactivated' }>()(z.strictObject({ id }), 'session'),
-  /** A product for a barcode the scanner did not find. */
+  /** A product for a barcode the scanner did not find; a cashier needs a manager's approval (`catalog.manage`). */
   'catalog.quickCreateProduct': def<{ id: string }>()(
-    z.strictObject({ barcode: z.string().max(64), name: z.string().max(200), priceCents: int, categoryId: id }),
+    z.strictObject({ barcode: z.string().max(64), name: z.string().max(200), priceCents: int, categoryId: id, overrideTokenId: tokenId }),
     'session'
   ),
   'catalog.adjustStock': def<{ stockMilli: number }>()(

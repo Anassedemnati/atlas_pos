@@ -15,8 +15,8 @@ export const ordersHandlers: Handlers<keyof typeof ordersChannels> = {
     ctx.services().orders.addLine(ctx.session(), orderId, line, token(overrideTokenId)),
   'orders.setLineQty': ({ orderId, lineId, qtyMilli, overrideTokenId }, ctx) =>
     ctx.services().orders.setLineQty(ctx.session(), orderId, lineId, qtyMilli, token(overrideTokenId)),
-  'orders.voidLine': ({ orderId, lineId, reason, overrideTokenId }, ctx) =>
-    ctx.services().orders.voidLine(ctx.session(), orderId, lineId, reason, token(overrideTokenId)),
+  'orders.voidLine': ({ orderId, lineId, reason, overrideTokenId, voidOverrideTokenId }, ctx) =>
+    ctx.services().orders.voidLine(ctx.session(), orderId, lineId, reason, token(overrideTokenId), token(voidOverrideTokenId)),
   'orders.setLineDiscount': ({ orderId, lineId, discount, overrideTokenId }, ctx) =>
     ctx.services().orders.setLineDiscount(ctx.session(), orderId, lineId, discount, token(overrideTokenId)),
   'orders.setTicketDiscount': ({ orderId, discount, overrideTokenId }, ctx) =>

@@ -8,11 +8,12 @@ import {
   StockAdjustmentSchema,
   type ProductInput
 } from '../../../domain/catalog/inputs'
-import { requirePermission, type Session } from '../../../domain/users/session'
+import { hasPermission, requirePermission, type OverrideToken, type Session } from '../../../domain/users/session'
 import type { CatalogRepo } from '../../../infrastructure/db/repos/catalog-repo'
 import type { SettingsRepo } from '../../../infrastructure/db/repos/settings-repo'
 import type { UnitOfWork } from '../../../infrastructure/db/uow'
 import { AppErrorException } from '../../errors'
+import type { OverrideUseCases } from '../users/override'
 import { attemptSync, invalidInput } from '../users/outcome'
 import { logChange, parseInput } from './input'
 
@@ -35,7 +36,8 @@ export interface ProductUseCases {
    */
   deleteProduct(session: Session, id: string): Result<{ outcome: 'deleted' | 'deactivated' }>
   /**
-   * Needs `catalog.manage` (a manager at the till). A product for a barcode the scan did not find:
+   * Needs `catalog.manage`, or a manager's `overrideToken` for it (a cashier at the till: `forbidden` without; spent
+   * once the checks have passed, recorded as `overriddenBy`). A product for a barcode the scan did not find:
    * French name, VAT 20 % (the highest rate of `vat.rates` when the business has no 20 %), no stock
    * tracking; everything else is edited later.
    */
@@ -44,7 +46,8 @@ export interface ProductUseCases {
     barcode: string,
     name: string,
     priceCents: number,
-    categoryId: string
+    categoryId: string,
+    overrideToken?: OverrideToken
   ): Result<{ id: string }>
   /**
    * Needs `catalog.manage`. Adds `deltaMilli` (not 0, may be negative) to the stock of a product that
@@ -58,8 +61,10 @@ export function createProductUseCases(deps: {
   repo: CatalogRepo
   uow: UnitOfWork
   settings: SettingsRepo
+  /** The users service, which holds the manager approvals; without it no approval can be offered. */
+  overrides?: Pick<OverrideUseCases, 'consumeOverride' | 'isOverrideValid'>
 }): ProductUseCases {
-  const { repo, uow, settings } = deps
+  const { repo, uow, settings, overrides } = deps
 
   const assertBarcodeFree = (barcode: string | null, ownerId: string | undefined): void => {
     if (barcode === null) return
@@ -155,14 +160,28 @@ export function createProductUseCases(deps: {
     rawBarcode: string,
     name: string,
     priceCents: number,
-    categoryId: string
+    categoryId: string,
+    token?: OverrideToken
   ): { id: string } {
-    requirePermission(session, 'catalog.manage')
+    const held = hasPermission(session, 'catalog.manage')
+    if (!held) {
+      if (token === undefined || !overrides) throw new AppErrorException('forbidden', { permission: 'catalog.manage' })
+      if (!overrides.isOverrideValid(token, 'catalog.manage')) {
+        throw new AppErrorException('forbidden', { permission: 'catalog.manage', reason: 'override_invalid' })
+      }
+    }
     const input = parseInput(QuickCreateSchema, { barcode: rawBarcode, name: { fr: name }, priceCents, categoryId })
     const barcode = input.barcode as string
     return uow.run((tx) => {
       if (!repo.getCategory(input.categoryId)) throw invalidInput('categoryId', 'unknown category')
       assertBarcodeFree(barcode, undefined)
+      // Every check has passed: a manager's approval is spent now.
+      let approvedBy: string | undefined
+      if (!held && token !== undefined && overrides) {
+        const used = overrides.consumeOverride(token, 'catalog.manage')
+        if (!used.ok) throw new AppErrorException(used.error.code, used.error.params)
+        approvedBy = used.value.byUserId
+      }
       const product: ProductDto = {
         ...productDefaults(),
         id: newId(),
@@ -178,7 +197,7 @@ export function createProductUseCases(deps: {
         type: 'product.quick_created',
         entity: 'product',
         entityId: product.id,
-        data: { barcode, priceCents: product.priceCents }
+        data: { barcode, priceCents: product.priceCents, ...(approvedBy ? { overriddenBy: approvedBy } : {}) }
       })
       return { id: product.id }
     })
@@ -205,8 +224,8 @@ export function createProductUseCases(deps: {
   return {
     saveProduct: (session, input) => attemptSync(() => save(session, input)),
     deleteProduct: (session, id) => attemptSync(() => remove(session, id)),
-    quickCreateProduct: (session, barcode, name, priceCents, categoryId) =>
-      attemptSync(() => quickCreate(session, barcode, name, priceCents, categoryId)),
+    quickCreateProduct: (session, barcode, name, priceCents, categoryId, overrideToken) =>
+      attemptSync(() => quickCreate(session, barcode, name, priceCents, categoryId, overrideToken)),
     adjustStock: (session, productId, deltaMilli, reason) =>
       attemptSync(() => adjust(session, productId, deltaMilli, reason))
   }

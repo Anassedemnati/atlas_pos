@@ -129,6 +129,7 @@ export const setupHandlers: Handlers<SetupChannel> = {
   'tech.quitToDesktop': (input, ctx, deps) => appHandlers['app.quitToDesktop'](input, ctx, deps),
 
   'floor.list': (_input, ctx) => ok(listFloor(ctx.services().db)),
+  'floor.save': (input, ctx) => ctx.services().floor.saveFloor(ctx.session(), input),
   'payments.list': (_input, ctx) => ok(listPaymentMethods(ctx.services().db)),
   'printing.routing': (_input, ctx) => ok(listRouting(ctx.services().db)),
   'users.list': (_input, ctx) => ok(listStaff(ctx.services().db))

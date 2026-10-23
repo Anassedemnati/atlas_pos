@@ -1,7 +1,7 @@
 import type { LineModifierDto, OrderDto, ProductDto } from '@shared/dto'
 import { newId } from '@shared/ids'
 import type { Result } from '@shared/result'
-import { requirePermission, type OverrideToken, type Session } from '../../../domain/users/session'
+import { hasPermission, type OverrideToken, type Session } from '../../../domain/users/session'
 import type { StoredLine, StoredOrder } from '../../../infrastructure/db/repos/orders-repo'
 import { AppErrorException } from '../../errors'
 import { parseInput } from '../catalog/input'
@@ -43,10 +43,18 @@ export interface LineUseCases {
   setLineQty(session: Session, orderId: string, lineId: string, qtyMilli: number, overrideToken?: OverrideToken): Result<OrderDto>
   /**
    * Removes a line (it stays, as void, for the Z report). Before sending it is free; after, it needs
-   * `order.void_sent` and a reason, and queues a kitchen "ANNULÉ" ticket. The stock comes back. The
-   * order's discount is checked again as for a lower quantity.
+   * `order.void_sent` and a reason (`forbidden` without it, unless a manager's `voidToken` approves it: spent last,
+   * recorded as `voidOverriddenBy`), and queues a kitchen "ANNULÉ" ticket. The stock comes back. The
+   * order's discount is checked again as for a lower quantity (`overrideToken`, see `setLineDiscount`).
    */
-  voidLine(session: Session, orderId: string, lineId: string, reason: string, overrideToken?: OverrideToken): Result<OrderDto>
+  voidLine(
+    session: Session,
+    orderId: string,
+    lineId: string,
+    reason: string,
+    overrideToken?: OverrideToken,
+    voidToken?: OverrideToken
+  ): Result<OrderDto>
 }
 
 /** Throws `invalid_qty` unless `qtyMilli` is a whole number > 0, in whole units unless sold by weight. */
@@ -174,19 +182,46 @@ export function createLineUseCases(ctx: Sales): LineUseCases {
     })
   }
 
-  function voidIt(session: Session, orderId: string, lineId: string, rawReason: string, token?: OverrideToken): OrderDto {
+  function voidIt(
+    session: Session,
+    orderId: string,
+    lineId: string,
+    rawReason: string,
+    token?: OverrideToken,
+    voidToken?: OverrideToken
+  ): OrderDto {
     return uow.run((tx) => {
       const order = loadOrder(ctx, orderId)
       const line = activeLine(order, lineId)
       const sent = line.sentAt !== null
-      if (sent) requirePermission(session, 'order.void_sent')
+      // A sent line needs `order.void_sent`, or a manager's approval of exactly that (checked now, spent once nothing can refuse).
+      const needsApproval = sent && !hasPermission(session, 'order.void_sent')
+      if (needsApproval) {
+        if (voidToken === undefined) throw new AppErrorException('forbidden', { permission: 'order.void_sent' })
+        if (!ctx.overrides.isOverrideValid(voidToken, 'order.void_sent')) {
+          throw new AppErrorException('forbidden', { permission: 'order.void_sent', reason: 'override_invalid' })
+        }
+      }
       const reason = sent ? reasonOf(rawReason) : typeof rawReason === 'string' ? rawReason.trim() : ''
       const voided: StoredLine = { ...line, status: 'void', voidReason: reason }
       const audit = recheck(session, order, voided, true, token)
+      let approvedBy: string | undefined
+      if (needsApproval && voidToken !== undefined) {
+        const used = ctx.overrides.consumeOverride(voidToken, 'order.void_sent')
+        if (!used.ok) throw new AppErrorException(used.error.code, used.error.params)
+        approvedBy = used.value.byUserId
+      }
       ctx.orders.updateLine(tx, voided)
       moveStock(tx, ctx, line, 1)
       if (sent) ctx.spooler.enqueue(tx, { target: { role: 'kitchen' }, kind: 'kitchen-cancel', payload: { orderId: order.id, lineIds: [lineId] } })
-      logOrder(tx, ctx, session, order, 'order.line_void', { lineId, reason, sent, qtyMilli: line.qtyMilli, ...audit })
+      logOrder(tx, ctx, session, order, 'order.line_void', {
+        lineId,
+        reason,
+        sent,
+        qtyMilli: line.qtyMilli,
+        ...audit,
+        ...(approvedBy ? { voidOverriddenBy: approvedBy } : {})
+      })
       return reread(ctx, order.id)
     })
   }
@@ -194,6 +229,7 @@ export function createLineUseCases(ctx: Sales): LineUseCases {
   return {
     addLine: (session, orderId, input, token) => attemptSync(() => add(session, orderId, input, token)),
     setLineQty: (session, orderId, lineId, qtyMilli, token) => attemptSync(() => setQty(session, orderId, lineId, qtyMilli, token)),
-    voidLine: (session, orderId, lineId, reason, token) => attemptSync(() => voidIt(session, orderId, lineId, reason, token))
+    voidLine: (session, orderId, lineId, reason, token, voidToken) =>
+      attemptSync(() => voidIt(session, orderId, lineId, reason, token, voidToken))
   }
 }

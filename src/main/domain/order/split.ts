@@ -1,4 +1,4 @@
-import { allocateProportional } from '@shared/vat'
+import { equalShares } from '@shared/split'
 import { AppErrorException } from '../../application/errors'
 import type { Discount } from './discount'
 import type { OrderLine } from './line'
@@ -31,5 +31,5 @@ export function splitByItems(lines: OrderLine[], groups: string[][], ticketDisco
 export function splitEqual(totalCents: number, parts: number): number[] {
   if (!Number.isSafeInteger(totalCents) || totalCents < 0) throw new AppErrorException('invalid_amount', { totalCents })
   if (!Number.isSafeInteger(parts) || parts < 1) throw new AppErrorException('invalid_parts', { parts })
-  return allocateProportional(totalCents, Array.from({ length: parts }, () => 1))
+  return equalShares(totalCents, parts)
 }

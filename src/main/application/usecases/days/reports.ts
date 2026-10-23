@@ -2,7 +2,7 @@ import type { DayDto, DayGateDto, ZData } from '@shared/dto'
 import { newId } from '@shared/ids'
 import type { Result } from '@shared/result'
 import { activeLines } from '../../../domain/order/order'
-import { requirePermission, type Session } from '../../../domain/users/session'
+import { hasPermission, requirePermission, type OverrideToken, type Session } from '../../../domain/users/session'
 import { appendEvent } from '../../../infrastructure/db/event-log'
 import { nextSequence } from '../../../infrastructure/db/sequences'
 import { AppErrorException } from '../../errors'
@@ -22,12 +22,13 @@ export interface DayUseCases {
    */
   xReport(session: Session, dayId?: string): Result<ZData>
   /**
-   * The Z: needs `day.close`. Refused with `open_orders_exist` (`params.orders`) while an order with
+   * The Z: needs `day.close`, or a manager's `overrideToken` for it (`forbidden` otherwise; spent once the checks have
+   * passed, recorded as `overriddenBy`). Refused with `open_orders_exist` (`params.orders`) while an order with
    * lines or payments is open or parked; empty ones are cancelled with the Z. In one transaction: the
    * next Z number, the immutable `z_reports` row, the day closed, the Z queued for printing. Announces
    * `day.closed`, then asks for a full backup (setting `backup.onClose`). The next sale opens a new day.
    */
-  closeDay(session: Session): Result<{ zId: string; data: ZData }>
+  closeDay(session: Session, overrideToken?: OverrideToken): Result<{ zId: string; data: ZData }>
 }
 
 export function createDayUseCases(ctx: Sales): DayUseCases {
@@ -57,8 +58,14 @@ export function createDayUseCases(ctx: Sales): DayUseCases {
     return figures(day, null, null)
   }
 
-  function close(session: Session): { zId: string; data: ZData } {
-    requirePermission(session, 'day.close')
+  function close(session: Session, token?: OverrideToken): { zId: string; data: ZData } {
+    const held = hasPermission(session, 'day.close')
+    if (!held) {
+      if (token === undefined) throw new AppErrorException('forbidden', { permission: 'day.close' })
+      if (!ctx.overrides.isOverrideValid(token, 'day.close')) {
+        throw new AppErrorException('forbidden', { permission: 'day.close', reason: 'override_invalid' })
+      }
+    }
     const result = uow.run((tx) => {
       const day = ctx.days.openDay()
       if (!day) throw new AppErrorException('no_open_day')
@@ -77,6 +84,13 @@ export function createDayUseCases(ctx: Sales): DayUseCases {
           }))
         })
       }
+      // Every check has passed: a manager's approval is spent now (a blocked Z does not burn it).
+      let approvedBy: string | undefined
+      if (!held && token !== undefined) {
+        const used = ctx.overrides.consumeOverride(token, 'day.close')
+        if (!used.ok) throw new AppErrorException(used.error.code, used.error.params)
+        approvedBy = used.value.byUserId
+      }
       for (const order of empty) logOrder(tx, ctx, session, { ...order, status: 'cancelled' }, 'order.cancelled_at_z', { dayId: day.id })
 
       const zNumber = nextSequence(tx.db, 'z')
@@ -87,7 +101,7 @@ export function createDayUseCases(ctx: Sales): DayUseCases {
       ctx.days.close(tx, day.id, closedAt)
       appendEvent(
         tx.db,
-        { type: 'day.closed', entity: 'day', entityId: day.id, userId: session.userId, data: { zId, zNumber, totalCents: data.totalCents } },
+        { type: 'day.closed', entity: 'day', entityId: day.id, userId: session.userId, data: { zId, zNumber, totalCents: data.totalCents, ...(approvedBy ? { overriddenBy: approvedBy } : {}) } },
         tx.clock
       )
       ctx.spooler.enqueue(tx, { target: { role: 'receipt' }, kind: 'z', payload: { zId } })
@@ -104,6 +118,6 @@ export function createDayUseCases(ctx: Sales): DayUseCases {
     dayGate: () =>
       attemptSync(() => gateOf(ctx.days.openDay(), ctx.days.lastNumber() + 1, ctx.clock.now(), settings.get('day.cutoverHour'))),
     xReport: (session, dayId) => attemptSync(() => x(session, dayId)),
-    closeDay: (session) => attemptSync(() => close(session))
+    closeDay: (session, overrideToken) => attemptSync(() => close(session, overrideToken))
   }
 }

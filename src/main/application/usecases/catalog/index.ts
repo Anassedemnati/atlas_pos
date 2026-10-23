@@ -3,6 +3,7 @@ import type { Database } from '../../../infrastructure/db/connection'
 import { createCatalogRepo } from '../../../infrastructure/db/repos/catalog-repo'
 import type { SettingsRepo } from '../../../infrastructure/db/repos/settings-repo'
 import type { UnitOfWork } from '../../../infrastructure/db/uow'
+import type { OverrideUseCases } from '../users/override'
 import { createCategoryUseCases, type CategoryUseCases } from './categories'
 import { createImportExportUseCases, type ImportExportUseCases } from './import-export'
 import { createMenuUseCases, type MenuUseCases } from './menus'
@@ -17,6 +18,8 @@ export interface CatalogDeps {
   uow: UnitOfWork
   /** Read for `vat.rates` at every call that checks a VAT rate. */
   settings: SettingsRepo
+  /** The users service, which holds the manager approvals (a cashier may create a product from a scan with one). */
+  overrides?: Pick<OverrideUseCases, 'consumeOverride' | 'isOverrideValid'>
 }
 
 export interface ReadCatalog {
@@ -40,12 +43,12 @@ export type CatalogService = ReadCatalog &
  * Every change needs `catalog.manage`, runs in one transaction, is written to the event log and
  * announces `catalog.changed` once it is committed.
  */
-export function createCatalogService({ db, uow, settings }: CatalogDeps): CatalogService {
+export function createCatalogService({ db, uow, settings, overrides }: CatalogDeps): CatalogService {
   const repo = createCatalogRepo(db)
   return {
     listCatalog: () => repo.list(),
     ...createCategoryUseCases({ repo, uow }),
-    ...createProductUseCases({ repo, uow, settings }),
+    ...createProductUseCases({ repo, uow, settings, ...(overrides ? { overrides } : {}) }),
     ...createModifierUseCases({ repo, uow }),
     ...createMenuUseCases({ repo, uow }),
     ...createReorderUseCases({ repo, uow }),
