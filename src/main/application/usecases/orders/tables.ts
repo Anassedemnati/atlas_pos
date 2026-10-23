@@ -26,7 +26,8 @@ export interface TableUseCases {
    * discount (remove it first: it was given on that bill, not on the other), and with `below_paid` when
    * the merged bill, under the target's ticket discount, would be less than what both were paid. The
    * merged order keeps the target's ticket percentage approval and the two budgets added up, and its
-   * discount is checked against the session and those (`discount_over_limit` unless `overrideToken`).
+   * discount is checked against the session and those (`discount_over_limit` unless `overrideToken`,
+   * whose approval is then recorded on it).
    */
   mergeTables(session: Session, fromOrderId: string, intoOrderId: string, overrideToken?: OverrideToken): Result<OrderDto>
   /**
@@ -34,7 +35,7 @@ export interface TableUseCases {
    * would be under what the source order was already paid. Each order keeps its own approvals, except
    * that the moved lines' line discounts travel with them out of the source's budget (at most what it
    * holds) into the target's; both orders' discounts are then checked (`discount_over_limit` unless
-   * `overrideToken`, spent once for both). Returns the source order.
+   * `overrideToken`, spent once for both and recorded on the order that needed it). Returns the source order.
    */
   moveLines(session: Session, fromOrderId: string, lineIds: string[], toOrderId: string, overrideToken?: OverrideToken): Result<OrderDto>
 }
@@ -80,7 +81,8 @@ export function createTableUseCases(ctx: Sales): TableUseCases {
       // The target's ticket percentage approval stays; the budgets add up (the source's covered its lines).
       const merged = { ...into, covers: into.covers + from.covers, approvedCents: into.approvedCents + from.approvedCents }
       const gate = discountGate(token)
-      checkDiscountLimit(session, gate, { lines: mergedLines, discount: into.discount }, merged)
+      const check = checkDiscountLimit(session, gate, { lines: mergedLines, discount: into.discount }, merged)
+      merged.approvedCents = check.approvals.approvedCents
       const audit = settleDiscount(ctx, gate)
       moveTo(tx, from.lines, into)
       ctx.orders.movePayments(tx, from.id, into.id)
@@ -119,8 +121,9 @@ export function createTableUseCases(ctx: Sales): TableUseCases {
       const source = { ...from, approvedCents: from.approvedCents - carried }
       const target = { ...to, approvedCents: to.approvedCents + carried }
       const gate = discountGate(token)
-      checkDiscountLimit(session, gate, { lines: staying, discount: from.discount }, source)
-      checkDiscountLimit(session, gate, { lines: [...to.lines, ...moving], discount: to.discount }, target)
+      source.approvedCents = checkDiscountLimit(session, gate, { lines: staying, discount: from.discount }, source).approvals.approvedCents
+      target.approvedCents = checkDiscountLimit(session, gate, { lines: [...to.lines, ...moving], discount: to.discount }, target).approvals
+        .approvedCents
       const audit = settleDiscount(ctx, gate)
       moveTo(tx, moving, to)
       logOrder(tx, ctx, session, source, 'order.lines_moved_out', { toOrderId: to.id, lineIds, carriedCents: carried, ...audit })

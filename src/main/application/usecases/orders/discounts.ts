@@ -51,7 +51,7 @@ export interface DiscountUseCases {
    * Offers a line (`free` true, with a reason) or charges it again. Offering needs `order.free_item`, or
    * `overrideToken` for it (spent, logged as `overriddenBy`). Offering a line shrinks what the other
    * discounts are measured on, so the order's discount is checked again (`discount_over_limit`, or
-   * `discountOverrideToken`); the approvals are unchanged.
+   * `discountOverrideToken`, whose approval is then recorded on the order).
    */
   setFree(
     session: Session,
@@ -98,7 +98,7 @@ export function createDiscountUseCases(ctx: Sales): DiscountUseCases {
   ): void {
     assertNotBelowPaid(after.lines, after.discount, order.payments)
     const own = approvalsAfterDiscount(approvalsOf(order), session, after, change, false)
-    const over = checkDiscountLimit(session, gate, after, own)
+    const { over } = checkDiscountLimit(session, gate, after, own)
     const viaManager = over || hasPermission(session, 'order.discount.override')
     const approvals = viaManager ? approvalsAfterDiscount(approvalsOf(order), session, after, change, true) : own
     if (after.changed) ctx.orders.updateLine(tx, after.changed)
@@ -158,9 +158,10 @@ export function createDiscountUseCases(ctx: Sales): DiscountUseCases {
       const changed = { ...activeLine(order, lineId), free, freeReason: reason }
       const lines = replaced(order, changed)
       assertNotBelowPaid(lines, order.discount, order.payments)
-      // A base change: checked against the approvals the order has, which it keeps.
+      // A base change: checked against the approvals the order has; a manager's pass is recorded.
       const gate = discountGate(discountToken)
-      checkDiscountLimit(session, gate, { lines, discount: order.discount }, approvalsOf(order))
+      const check = checkDiscountLimit(session, gate, { lines, discount: order.discount }, approvalsOf(order))
+      order.approvedCents = check.approvals.approvedCents
       ctx.orders.updateLine(tx, changed)
       // Tokens are spent last, the discount token checked (not spent) before the free-item one is spent.
       assertDiscountApprovable(ctx, gate)

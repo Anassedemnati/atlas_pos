@@ -42,7 +42,8 @@ export interface CloseUseCases {
    * In one transaction: whatever the kitchen has not received is sent, the next ticket number is taken
    * (gap-free), the immutable ticket is written with its full snapshot, the order is closed, and the
    * receipt (and, for cash, a drawer pulse) is queued. Announces `ticket.closed`. The order's discount is
-   * checked against the closing session and the order's approvals (`discount_over_limit` unless `overrideToken`).
+   * checked against the closing session and the order's approvals (`discount_over_limit` unless
+   * `overrideToken`, whose approval is then recorded with the closed order).
    */
   closeOrder(session: Session, orderId: string, overrideToken?: OverrideToken): Result<TicketDto>
   /**
@@ -99,7 +100,7 @@ export function closeInTx(
   if (activeLines(order.lines).length === 0) throw new AppErrorException('order_empty')
   const { due } = paymentState(computeTotals(order.lines, order.discount).total, order.payments)
   if (due > 0) throw new AppErrorException('not_paid', { dueCents: due })
-  checkDiscountLimit(session, check.gate, { lines: order.lines, discount: order.discount }, approvalsOf(order))
+  const checked = checkDiscountLimit(session, check.gate, { lines: order.lines, discount: order.discount }, approvalsOf(order))
   // A token is spent only once all the rest is done (it all rolls back if spending it fails).
   if (check.settle) assertDiscountApprovable(ctx, check.gate)
   sendLines(tx, ctx, session, order, unsentLines(order.lines))
@@ -134,7 +135,7 @@ export function closeInTx(
   }
   ctx.tickets.insert(tx, ticket)
   const audit = check.settle ? settleDiscount(ctx, check.gate) : {}
-  logOrder(tx, ctx, session, { ...order, status: 'closed' }, 'ticket.closed', {
+  logOrder(tx, ctx, session, { ...order, status: 'closed', ...checked.approvals }, 'ticket.closed', {
     ticketId: ticket.id,
     label: ticket.label,
     totalCents: ticket.totalCents,
@@ -213,8 +214,7 @@ export function createCloseUseCases(ctx: Sales): CloseUseCases {
       const moved = new Set(groups.flatMap((g) => g.lineIds))
       const left = order.lines.filter((l) => !moved.has(l.id))
       const leftDiscount = asAmount(activeLines(left).reduce((sum, l) => sum + shareOf(l), 0))
-      const leftApprovals = approvalsOfPart(left)
-      checkDiscountLimit(session, gate, { lines: left, discount: leftDiscount }, leftApprovals)
+      const leftApprovals = checkDiscountLimit(session, gate, { lines: left, discount: leftDiscount }, approvalsOfPart(left)).approvals
       // Last: every part is closed and every other check passed.
       const audit = settleDiscount(ctx, gate)
       logOrder(

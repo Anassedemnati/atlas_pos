@@ -181,8 +181,8 @@ describe('orders: discounts, free items, voids, payments', () => {
       })
       const token = ok(await h.users.authorizeOverride(PINS.amine, 'order.discount.override'))
       const dto = ok(h.orders.voidLine(h.cashier, o.id, o.lines[1]!, '', token))
-      // A base change: approved by the token, but nothing is recorded on the order.
-      expect(dto).toMatchObject({ approvedTicketBp: 0, approvedCents: 0, totals: { totalCents: 5600 } })
+      // The state the manager approved (14,00 off 70,00) is recorded as the order's budget.
+      expect(dto).toMatchObject({ approvedTicketBp: 0, approvedCents: 1400, totals: { totalCents: 5600 } })
       expect(h.eventRows('order.line_void').at(-1)).toMatchObject({ data: { overriddenBy: h.seeded.users.amine } })
     })
 

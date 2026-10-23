@@ -133,7 +133,10 @@ describe('orders: the discount limit, own percentage plus manager approvals', ()
       payAll(h.cashier, o.id)
       expect(h.tickets.closeOrder(h.waiter, o.id)).toMatchObject(over(700, 1))
       // The cashier, or a manager token, can.
-      expect(ok(addLine(h.waiter, o.id, h.fx.products.the, 1000, ok(await overrideToken()))).totals.totalCents).toBe(7500)
+      expect(ok(addLine(h.waiter, o.id, h.fx.products.the, 1000, ok(await overrideToken())))).toMatchObject({
+        approvedCents: 700,
+        totals: { totalCents: 7500 }
+      })
       expect(h.eventRows('order.line_added').at(-1)).toMatchObject({ data: { overriddenBy: h.seeded.users.amine } })
       payAll(h.cashier, o.id)
       expect(ok(h.tickets.closeOrder(h.cashier, o.id)).totalCents).toBe(7500)
@@ -179,15 +182,27 @@ describe('orders: the discount limit, own percentage plus manager approvals', ()
       expect(approvalsOf(o.id)).toEqual({ bp: 0, cents: 0 })
     })
 
-    it('a base change never raises an approval: a void approved by token leaves the order needing the manager again to close', async () => {
-      const o = order(h.cashier, h.fx.products.tajine, h.fx.products.tajine)
-      ok(h.orders.setTicketDiscount(h.cashier, o.id, amount(1400)))
-      expect(h.orders.voidLine(h.cashier, o.id, o.lines[1]!.id, '')).toMatchObject(over(1400, 701))
-      const dto = ok(h.orders.voidLine(h.cashier, o.id, o.lines[1]!.id, '', ok(await overrideToken())))
-      expect(dto).toMatchObject({ approvedTicketBp: 0, approvedCents: 0, totals: { totalCents: 5600 } })
+    it('a base change approved by token records the state the manager saw: the cashier then closes without a new token', async () => {
+      const o = order(h.cashier, h.fx.products.tajine, h.fx.products.tajine, h.fx.products.tajine)
+      ok(h.orders.setTicketDiscount(h.cashier, o.id, amount(2100)))
+      expect(approvalsOf(o.id)).toEqual({ bp: 0, cents: 0 })
+      // 21,00 off 140,00 (15 %) needs the manager; the 21,00 is then the order's budget.
+      expect(h.orders.voidLine(h.cashier, o.id, o.lines[2]!.id, '')).toMatchObject(over(2100, 1402))
+      const dto = ok(h.orders.voidLine(h.cashier, o.id, o.lines[2]!.id, '', ok(await overrideToken())))
+      expect(dto).toMatchObject({ approvedTicketBp: 0, approvedCents: 2100, totals: { totalCents: 11900 } })
+      expect(h.eventRows('order.line_void').at(-1)).toMatchObject({ data: { overriddenBy: h.seeded.users.amine } })
+      // Raising the discount is refused again; the budget is absolute, so a further shrink stays within it.
+      expect(h.orders.setTicketDiscount(h.cashier, o.id, amount(2200))).toMatchObject(over(2200, 2102))
+      expect(ok(h.orders.voidLine(h.cashier, o.id, o.lines[1]!.id, ''))).toMatchObject({ approvedCents: 2100, totals: { totalCents: 4900 } })
       payAll(h.cashier, o.id)
-      expect(h.tickets.closeOrder(h.cashier, o.id)).toMatchObject(over(1400, 701))
-      expect(ok(h.tickets.closeOrder(h.cashier, o.id, ok(await overrideToken()))).totalCents).toBe(5600)
+      expect(ok(h.tickets.closeOrder(h.cashier, o.id)).totalCents).toBe(4900)
+
+      // A manager's own void records the same way, only when the state needed it.
+      const m = order(h.cashier, h.fx.products.tajine, h.fx.products.tajine)
+      ok(h.orders.setTicketDiscount(h.cashier, m.id, amount(1400)))
+      expect(ok(h.orders.voidLine(h.manager, m.id, m.lines[1]!.id, ''))).toMatchObject({ approvedCents: 1400 })
+      payAll(h.waiter, m.id)
+      expect(ok(h.tickets.closeOrder(h.waiter, m.id)).totalCents).toBe(5600)
     })
   })
 
@@ -344,7 +359,9 @@ describe('orders: the discount limit, own percentage plus manager approvals', ()
       const b = order(h.cashier, h.fx.products.the)
       expect(h.orders.moveLines(h.cashier, a.id, [a.lines[0]!.id], b.id)).toMatchObject(over(1000, 221))
       ok(h.orders.moveLines(h.cashier, a.id, [a.lines[0]!.id], b.id, ok(await overrideToken())))
-      expect(approvalsOf(b.id)).toEqual({ bp: 0, cents: 0 })
+      // The target needed the manager: the 10,00 it now carries is recorded on it, nothing on the source.
+      expect(approvalsOf(b.id)).toEqual({ bp: 0, cents: 1000 })
+      expect(approvalsOf(a.id)).toEqual({ bp: 0, cents: 0 })
     })
 
     it('merge-probe: the merged order keeps its ticket percentage and adds the two budgets', async () => {
@@ -368,8 +385,8 @@ describe('orders: the discount limit, own percentage plus manager approvals', ()
       expect(h.orders.mergeTables(h.cashier, small.id, target.id)).toMatchObject(over(3030, 1773))
       ok(h.orders.mergeTables(h.cashier, small.id, target.id, ok(await overrideToken())))
       expect(h.eventRows('order.merged').at(-1)).toMatchObject({ data: { overriddenBy: h.seeded.users.amine } })
-      // A base change: the merge raised nothing.
-      expect(approvalsOf(target.id)).toEqual({ bp: 1000, cents: 0 })
+      // The manager's pass is recorded: the 30,30 less the 17,70 the 10 % covers.
+      expect(approvalsOf(target.id)).toEqual({ bp: 1000, cents: 1260 })
     })
   })
 
@@ -387,9 +404,9 @@ describe('orders: the discount limit, own percentage plus manager approvals', ()
       const discountToken = ok(await overrideToken())
       const wrongFreeToken = ok(await h.users.authorizeOverride(PINS.amine, 'ticket.cancel'))
       expect(code(h.orders.setFree(h.cashier, o.id, o.lines[1]!.id, true, 'Geste', wrongFreeToken, discountToken))).toBe('forbidden')
-      // Both tokens are still good; the approvals are unchanged by the free item.
+      // Both tokens are still good; the 8,20 the manager approved on 70,00 is recorded.
       const dto = ok(h.orders.setFree(h.cashier, o.id, o.lines[1]!.id, true, 'Geste', freeToken, discountToken))
-      expect(dto).toMatchObject({ approvedTicketBp: 0, approvedCents: 0, totals: { totalCents: 6180 } })
+      expect(dto).toMatchObject({ approvedTicketBp: 0, approvedCents: 820, totals: { totalCents: 6180 } })
       expect(h.eventRows('order.free').at(-1)).toMatchObject({
         data: { overriddenBy: h.seeded.users.amine, discountOverriddenBy: h.seeded.users.amine }
       })

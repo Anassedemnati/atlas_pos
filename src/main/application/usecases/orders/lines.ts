@@ -29,7 +29,8 @@ export interface LineUseCases {
    * is not sold by weight; `invalid_modifiers` for a modifier that is not offered for the product, or a
    * group outside its min / max; `invalid_menu_choice` when the choices do not fill the set menu's courses.
    * A percentage ticket discount grows with the bill, so the order's discount is checked again with the
-   * line in (`discount_over_limit` unless `overrideToken`, see `setLineDiscount`); the approvals are unchanged.
+   * line in (`discount_over_limit` unless `overrideToken`, see `setLineDiscount`; a manager's approval is
+   * then recorded on the order).
    */
   addLine(session: Session, orderId: string, input: AddLineInput, overrideToken?: OverrideToken): Result<OrderDto>
   /**
@@ -127,7 +128,8 @@ export function createLineUseCases(ctx: Sales): LineUseCases {
         createdAt: tx.clock.now().toISOString()
       }
       const gate = discountGate(token)
-      checkDiscountLimit(session, gate, { lines: [...order.lines, line], discount: order.discount }, approvalsOf(order))
+      const check = checkDiscountLimit(session, gate, { lines: [...order.lines, line], discount: order.discount }, approvalsOf(order))
+      order.approvedCents = check.approvals.approvedCents
       ctx.orders.insertLine(tx, order.id, line)
       moveStock(tx, ctx, line, -1)
       const audit = settleDiscount(ctx, gate)
@@ -144,14 +146,15 @@ export function createLineUseCases(ctx: Sales): LineUseCases {
 
   /**
    * Checks the order once one of its lines becomes `changed` (a base change: against the approvals it
-   * has, which it keeps) and settles its discount check (the token, if needed, is spent here: every other
-   * check of the action has passed). Returns the audit data.
+   * has; a manager's pass is recorded on it) and settles its discount check (the token, if needed, is
+   * spent here: every other check of the action has passed). Returns the audit data.
    */
   function recheck(session: Session, order: StoredOrder, changed: StoredLine, token: OverrideToken | undefined) {
     const lines = order.lines.map((l) => (l.id === changed.id ? changed : l))
     assertNotBelowPaid(lines, order.discount, order.payments)
     const gate = discountGate(token)
-    checkDiscountLimit(session, gate, { lines, discount: order.discount }, approvalsOf(order))
+    const check = checkDiscountLimit(session, gate, { lines, discount: order.discount }, approvalsOf(order))
+    order.approvedCents = check.approvals.approvedCents
     return settleDiscount(ctx, gate)
   }
 

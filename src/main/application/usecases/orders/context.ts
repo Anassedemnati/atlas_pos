@@ -187,23 +187,40 @@ export function discountLimitCents(session: Session, approvals: Approvals, figur
   )
 }
 
+export interface DiscountCheck {
+  /** Over the limit for a limited session: the action goes on only if the gate's token is spent. */
+  over: boolean
+  /**
+   * What the order carries after the action: `approvals` as given, or, when the state needed a manager
+   * (over the limit with a token, or an unlimited session), the budget raised to cover the state, so
+   * the manager is not asked again at close for what was approved.
+   */
+  approvals: Approvals
+}
+
 /**
  * Records the check of one order state (its lines and ticket discount as they will be) under `approvals`:
  * its discount must stay within `discountLimitCents`. A session holding `order.discount.override` is not
- * limited. Returns whether the state is over the limit for this session: the action then goes on only if
- * the gate's token is spent (a manager approved it), see `settleDiscount`.
+ * limited; its pass is recorded whenever the state goes beyond what the order's own approvals cover. See
+ * `DiscountCheck`; a check that is over without a token makes `settleDiscount` refuse the action, so its
+ * raised approvals are never written.
  */
 export function checkDiscountLimit(
   session: Session,
   gate: DiscountGate,
   state: { lines: OrderLine[]; discount: Discount | null },
   approvals: Approvals
-): boolean {
+): DiscountCheck {
   const figures = discountFigures(state.lines, state.discount)
   const limitCents = discountLimitCents(session, approvals, figures)
-  const over = figures.discountCents > limitCents && !hasPermission(session, 'order.discount.override')
+  const unlimited = hasPermission(session, 'order.discount.override')
+  const approvedTerm = pctTermCents(approvals.approvedTicketBp, figures) + approvals.approvedCents
+  const needsManager = figures.discountCents > (unlimited ? approvedTerm : limitCents)
+  const over = needsManager && !unlimited
   gate.checks.push({ discountCents: figures.discountCents, limitCents, over })
-  return over
+  if (!needsManager) return { over, approvals }
+  const uncovered = figures.discountCents - Math.round((approvals.approvedTicketBp * figures.gross) / 10000)
+  return { over, approvals: { ...approvals, approvedCents: Math.max(approvals.approvedCents, uncovered) } }
 }
 
 /** Whether the order carries anything the budget covers: an amount ticket discount or a line discount. */
@@ -218,7 +235,7 @@ const carriesBudgeted = (lines: OrderLine[], discount: Discount | null): boolean
  * manager (an unlimited session, or a token the gate spends), the ticket percentage is approved as set
  * and the budget grows to cover whatever the ticket percentage does not. Base changes (lines added,
  * quantities, voids, free items, moves, merges, splits, closing) never go through here: they are only
- * checked, and never raise an approval.
+ * checked, and raise the budget only when a manager passed them (`checkDiscountLimit`).
  */
 export function approvalsAfterDiscount(
   previous: Approvals,
