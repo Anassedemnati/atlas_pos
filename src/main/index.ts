@@ -45,6 +45,8 @@ let runningLock: RunningLock | null = null
 let stopBackoffice: (() => Promise<void>) | null = null
 let quitting = false
 let cleanedUp = false
+/** Set by `app.quit()` (quit to desktop, OS shutdown): only then may a kiosk till window close. */
+let quitRequested = false
 const windows: AppWindows = { till: () => till, display: () => display }
 
 /**
@@ -103,6 +105,14 @@ async function start(): Promise<void> {
   const kiosk = !safeMode && (services ? services.settings.get('kiosk.enabled') : defaultOf('kiosk.enabled'))
   till = createTillWindow(windowConfig, kiosk)
   trackSessions(till, sessions)
+  if (kiosk && !dev) {
+    // Kiosk mode does not stop Alt+F4, and a closed till quits with code 0, which the watchdog takes as
+    // "stop for good": only an authorized quit (the technician, the OS ending the session) closes it.
+    till.on('close', (event) => {
+      if (!quitRequested) event.preventDefault()
+    })
+    till.on('session-end', () => (quitRequested = true))
+  }
   till.on('closed', () => {
     till = null
     app.quit()
@@ -155,6 +165,7 @@ if (!dev && !isChild && !exitAfterBoot) {
   // Another copy is running: it shows its till window.
   app.exit(0)
 } else {
+  app.on('before-quit', () => (quitRequested = true))
   app.on('window-all-closed', () => {
     // Hidden printing windows come and go: only the till window's end quits.
     if (!till) app.quit()
