@@ -1,3 +1,4 @@
+import type { Journal, JournalLine } from '@shared/dto/backoffice'
 import type { Result } from '@shared/result'
 import { requirePermission, type Session } from '../../../domain/users/session'
 import type { Database } from '../../../infrastructure/db/connection'
@@ -6,23 +7,7 @@ import { attemptSync, invalidInput } from '../users/outcome'
 export const DEFAULT_JOURNAL_LIMIT = 100
 export const MAX_JOURNAL_LIMIT = 500
 
-export interface JournalLine {
-  id: number
-  at: string
-  type: string
-  entity: string
-  entityId: string | null
-  userId: string | null
-  /** The display name of `userId` when that user still exists. */
-  userName: string | null
-  data: unknown
-}
-
-export interface Journal {
-  lines: JournalLine[]
-  /** Every event type found in the log, for the filter. */
-  types: string[]
-}
+export type { Journal, JournalLine }
 
 export interface JournalQuery {
   /** An exact type (`catalog.imported`) or a family (`user` for `user.login`, `user.locked`...). */

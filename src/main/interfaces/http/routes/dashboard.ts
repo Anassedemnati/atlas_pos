@@ -1,18 +1,6 @@
-import type { BackupStatusDto, DayDto, PrinterDto, PrintJobDto, ZData } from '@shared/dto'
+import type { DashboardDto } from '@shared/dto/backoffice'
 import type { FastifyInstance } from 'fastify'
 import { call, ok, route, type Env } from './shared'
-
-export interface DashboardDto {
-  /** The open business day, null between a Z and the next sale. */
-  day: DayDto | null
-  /** The day so far (the X report); null with no open day or without the `report.x` permission. */
-  today: ZData | null
-  backup: BackupStatusDto | null
-  printers: PrinterDto[]
-  /** Print jobs that failed or whose outcome is uncertain. */
-  jobs: PrintJobDto[]
-  version: string
-}
 
 /** Today's takings, the backup health and the printers: the first screen of the back office. */
 export function registerDashboardRoutes(app: FastifyInstance, env: Env): void {

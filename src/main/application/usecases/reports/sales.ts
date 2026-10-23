@@ -1,5 +1,5 @@
 import type { DayDto, TicketDto, ZData } from '@shared/dto'
-import type { LocalizedName } from '@shared/names'
+import type { ReportGroup, ReportRow, SalesReport, ZListItem } from '@shared/dto/backoffice'
 import type { Permission } from '@shared/permissions'
 import type { Result } from '@shared/result'
 import type { VatRow } from '@shared/vat'
@@ -10,49 +10,12 @@ import { computeZData } from '../days/z-data'
 import { attemptSync, invalidInput } from '../users/outcome'
 import { localDate, parsePeriod } from './period'
 
-export const REPORT_GROUPS = ['day', 'product', 'category', 'user', 'payment'] as const
-export type ReportGroup = (typeof REPORT_GROUPS)[number]
+export const REPORT_GROUPS = ['day', 'product', 'category', 'user', 'payment'] as const satisfies readonly ReportGroup[]
 
 /** Reports are read with the permission of the X report: whoever may see the day's takings may see the history. */
 export const REPORT_PERMISSION: Permission = 'report.x'
 
-export interface ReportRow {
-  /** The product, category, user or day id, the payment method code. */
-  key: string
-  label: LocalizedName
-  ticketsCount?: number
-  /** Payments of the method (credit notes subtracted). */
-  count?: number
-  qtyMilli?: number
-  grossCents?: number
-  discountsCents?: number
-  /** TTC, credit notes subtracted. */
-  totalCents: number
-  /** `group=day` only. */
-  dayNumber?: number
-  zNumber?: number | null
-  openedAt?: string
-  open?: boolean
-}
-
-export interface SalesReport {
-  from: string
-  to: string
-  group: ReportGroup
-  /** Business days of the period (the one still open included). */
-  daysCount: number
-  /** The period's own X: the same figures as a Z, summed over the days. */
-  totals: {
-    ticketsCount: number
-    creditsCount: number
-    grossCents: number
-    discountsCents: number
-    totalCents: number
-    byPayment: ZData['byPayment']
-    byVat: VatRow[]
-  }
-  rows: ReportRow[]
-}
+export type { ReportGroup, ReportRow, SalesReport, ZListItem }
 
 interface DayRow {
   id: string
@@ -171,22 +134,6 @@ export function buildSalesReport(db: Database, input: { from: string; to: string
       break
   }
   return { from: period.from, to: period.to, group: input.group, daysCount: days.length, totals, rows }
-}
-
-export interface ZListItem {
-  id: string
-  dayId: string
-  number: number
-  dayNumber: number
-  openedAt: string
-  closedAt: string | null
-  createdAt: string
-  userId: string
-  ticketsCount: number
-  creditsCount: number
-  grossCents: number
-  discountsCents: number
-  totalCents: number
 }
 
 /** The Z reports of the days opened in the period, newest first. */

@@ -158,6 +158,7 @@ function startServiceDependents(current: Runtime, services: Services, sessions: 
       runtime: current,
       log,
       paths: backofficeHost.paths,
+      appVersion: app.getVersion(),
       staticDir: join(here, '../renderer'),
       afterRestore: backofficeHost.afterRestore,
       restartNormally
