@@ -13,6 +13,7 @@ import { salesHandlers } from './sales'
 import type { SessionStore } from './session-store'
 import { setupHandlers } from './setup'
 import { systemHandlers } from './system'
+import { tillHandlers } from './till'
 import { usersHandlers } from './users'
 
 /** The part of Electron's `ipcMain` this needs (a fake in tests). */
@@ -28,7 +29,8 @@ export const allHandlers: Handlers<Channel> = {
   ...ordersHandlers,
   ...salesHandlers,
   ...systemHandlers,
-  ...setupHandlers
+  ...setupHandlers,
+  ...tillHandlers
 }
 
 function authorize(auth: ChannelAuth, ctx: CallContext): void {

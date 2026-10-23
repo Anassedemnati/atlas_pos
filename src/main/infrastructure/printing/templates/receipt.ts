@@ -16,6 +16,8 @@ export interface ReceiptOptions {
   paper?: boolean
   /** The business logo as a data URI; printed in HTML only. */
   logo?: string
+  /** The pre-bill (addition): titled ADDITION, with no ticket number and no payments. */
+  prebill?: boolean
 }
 
 const indent = '  '
@@ -69,7 +71,8 @@ export function receiptBlocks(s: TicketSnapshot, o: ReceiptOptions): Block[] {
   blocks.push({ kind: 'rule' })
 
   if (o.duplicate) blocks.push({ kind: 'text', text: `*** ${L.duplicate} ***`, align: 'center', bold: true, size: { w: 1, h: 2 } })
-  blocks.push({ kind: 'text', text: `${s.kind === 'credit' ? L.credit : L.ticket} ${s.label}`, bold: true })
+  if (o.prebill) blocks.push({ kind: 'text', text: L.prebill, align: 'center', bold: true, size: { w: 2, h: 2 } })
+  else blocks.push({ kind: 'text', text: `${s.kind === 'credit' ? L.credit : L.ticket} ${s.label}`, bold: true })
   if (s.ref) {
     blocks.push({ kind: 'text', text: `${L.ref} ${s.ref.label}` })
     if (s.ref.reason) blocks.push({ kind: 'text', text: `${L.reason} : ${s.ref.reason}` })
@@ -120,8 +123,8 @@ export function receiptBlocks(s: TicketSnapshot, o: ReceiptOptions): Block[] {
   blocks.push({ kind: 'rule' })
 
   if (s.kind === 'credit') blocks.push({ kind: 'text', text: L.refund, bold: true })
-  for (const p of s.payments) blocks.push({ kind: 'row', left: pickName(p.methodName, lang), right: formatAmount(p.tenderedCents) })
-  if (s.changeCents > 0) blocks.push({ kind: 'row', left: L.change, right: formatAmount(s.changeCents), bold: true })
+  if (!o.prebill) for (const p of s.payments) blocks.push({ kind: 'row', left: pickName(p.methodName, lang), right: formatAmount(p.tenderedCents) })
+  if (s.changeCents > 0 && !o.prebill) blocks.push({ kind: 'row', left: L.change, right: formatAmount(s.changeCents), bold: true })
 
   if (s.receipt.footer) {
     blocks.push({ kind: 'rule' })

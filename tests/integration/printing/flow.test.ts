@@ -393,12 +393,12 @@ describe('printing behind the use cases', () => {
       ])
     })
 
-    it('a pre-bill has no template yet: it fails with that reason', async () => {
+    it('a pre-bill with no readable content fails for good, with that reason', async () => {
       installPrinters()
       service.queue.start()
       h.uow.run((tx) => service.queue.enqueue(tx, { target: { role: 'receipt' }, kind: 'prebill', payload: { orderId: 'x' } }))
       await settle()
-      expect(jobRows(h.t.db)).toMatchObject([{ kind: 'prebill', status: 'failed', error: expect.stringContaining('unsupported_kind') }])
+      expect(jobRows(h.t.db)).toMatchObject([{ kind: 'prebill', status: 'failed', error: expect.stringContaining('payload_unreadable') }])
     })
   })
 

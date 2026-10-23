@@ -41,6 +41,7 @@ const KitchenJobPayload = z.object({
 })
 
 const ReceiptJobPayload = z.object({ ticketId: z.string().min(1), duplicate: z.boolean().optional() })
+const PrebillJobPayload = z.object({ snapshot: z.custom<TicketSnapshot>((value) => typeof value === 'object' && value !== null && 'lines' in value) })
 const ZJobPayload = z.object({ zId: z.string().min(1) })
 const InvoiceJobPayload = z.object({ invoiceId: z.string().min(1) })
 
@@ -131,8 +132,11 @@ export function createJobRenderer(deps: JobRendererDeps): JobRenderer {
         }
         return finish({ ...invoiceA4Html(invoice, snapshot.receipt.lang), raster: false })
       }
-      case 'prebill':
-        throw new PermanentPrintError('unsupported_kind', 'there is no pre-bill template yet')
+      case 'prebill': {
+        // The pre-bill is frozen in the job: what the customer was shown is what a retry prints.
+        const { snapshot } = payloadOf(PrebillJobPayload, job.kind, job.payload)
+        return finish(receiptDoc(snapshot, { lang: snapshot.receipt.lang, prebill: true, logo: deps.logo?.(), ...layout(printer) }))
+      }
     }
   }
 

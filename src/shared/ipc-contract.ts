@@ -9,6 +9,7 @@ import { ordersChannels } from './ipc/orders'
 import { customersChannels, daysChannels, ticketsChannels } from './ipc/sales'
 import { setupChannels, techChannels } from './ipc/setup'
 import { backupChannels, printingChannels, settingsChannels } from './ipc/system'
+import { tillChannels } from './ipc/till'
 import { usersChannels } from './ipc/users'
 
 /**
@@ -29,7 +30,8 @@ export const IpcContract = {
   ...printingChannels,
   ...configChannels,
   ...setupChannels,
-  ...techChannels
+  ...techChannels,
+  ...tillChannels
 } satisfies Record<string, ChannelDef>
 
 export type IpcContract = typeof IpcContract

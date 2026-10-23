@@ -101,7 +101,13 @@ export const CHANNELS = [
   'tech.importProfile',
   'tech.logs',
   'tech.restore',
-  'tech.quitToDesktop'
+  'tech.quitToDesktop',
+  'orders.list',
+  'orders.printPrebill',
+  'tickets.list',
+  'days.history',
+  'days.reprintZ',
+  'users.setLang'
 ] as const satisfies readonly Channel[]
 
 export const EVENT_TYPES = [
