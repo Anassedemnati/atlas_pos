@@ -11,10 +11,10 @@ import {
 
 const DAY = 24 * 60 * 60 * 1000
 
-/** One `full` backup a day at 09:00 local time, `days` days back from `newest` (newest first). */
+/** One `full` backup a day at 08:00 local time, `days` days back from `newest` (newest first). */
 function dailies(newest: Date, days: number): { name: string; at: Date }[] {
   return Array.from({ length: days }, (_, i) => {
-    const at = new Date(newest.getFullYear(), newest.getMonth(), newest.getDate() - i, 9, 0)
+    const at = new Date(newest.getFullYear(), newest.getMonth(), newest.getDate() - i, 8, 0)
     return { name: fullBackupName(at, 'full'), at }
   })
 }
@@ -39,30 +39,30 @@ describe('selectForDeletion', () => {
     const deleted = new Set(selectForDeletion(files.map((f) => f.name), now, 30))
     const kept = files.filter((f) => !deleted.has(f.name))
 
-    // Days 0..29 are within 30 days (day 30, at 09:00, is 30 days and 1 hour old).
+    // Days 0..29 are within 30 days (day 30, at 08:00, is 30 days and 2 hours old: a DST change in between cannot bring it inside).
     const last30 = files.slice(0, 30)
     for (const f of last30) expect(deleted.has(f.name)).toBe(false)
     // Older than that, only the newest of a month survives: 31 Aug (Sep's newest, 30 Sep, is already kept).
-    expect(kept.map((f) => f.name)).toEqual([...last30.map((f) => f.name), fullBackupName(new Date(2026, 7, 31, 9, 0), 'full')])
+    expect(kept.map((f) => f.name)).toEqual([...last30.map((f) => f.name), fullBackupName(new Date(2026, 7, 31, 8, 0), 'full')])
     expect(deleted.size).toBe(29)
   })
 
   it('never deletes the newest 3, even when every full is past retention', () => {
-    const newest = new Date(2026, 6, 10, 9, 0) // 10 Jul
+    const newest = new Date(2026, 6, 10, 8, 0) // 10 Jul
     const files = dailies(newest, 20) // 10 Jul back to 21 Jun
     const deleted = new Set(selectForDeletion(files.map((f) => f.name), now, 30))
     const kept = files.filter((f) => !deleted.has(f.name)).map((f) => f.name)
 
     expect(kept).toEqual([
-      fullBackupName(new Date(2026, 6, 10, 9, 0), 'full'), // newest + newest of July
-      fullBackupName(new Date(2026, 6, 9, 9, 0), 'full'),
-      fullBackupName(new Date(2026, 6, 8, 9, 0), 'full'),
-      fullBackupName(new Date(2026, 5, 30, 9, 0), 'full') // newest of June
+      fullBackupName(new Date(2026, 6, 10, 8, 0), 'full'), // newest + newest of July
+      fullBackupName(new Date(2026, 6, 9, 8, 0), 'full'),
+      fullBackupName(new Date(2026, 6, 8, 8, 0), 'full'),
+      fullBackupName(new Date(2026, 5, 30, 8, 0), 'full') // newest of June
     ])
   })
 
   it('drops monthly copies older than 12 months', () => {
-    const old = [new Date(2025, 8, 30, 9, 0), new Date(2025, 9, 30, 9, 0), new Date(2025, 10, 30, 9, 0)]
+    const old = [new Date(2025, 8, 30, 8, 0), new Date(2025, 9, 30, 8, 0), new Date(2025, 10, 30, 8, 0)]
     const recent = dailies(now, 3)
     const names = [...recent, ...old.map((at) => ({ name: fullBackupName(at, 'full'), at }))].map((f) => f.name)
     const deleted = selectForDeletion(names, now, 30)

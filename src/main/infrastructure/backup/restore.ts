@@ -85,9 +85,11 @@ const fail = (code: string, params?: Record<string, unknown>): { ok: false; erro
 
 const SUFFIXES = ['', '-wal', '-shm'] as const
 
-/** Renames `from + s` to `to + s` for each suffix present, the database first. Returns the suffixes moved. */
-async function moveDbFiles(from: string, to: string): Promise<string[]> {
-  const moved: string[] = []
+/**
+ * Renames `from + s` to `to + s` for each suffix present, the database first, recording each
+ * suffix in `moved` as soon as it has moved (so a failure half way knows what to put back).
+ */
+async function moveDbFiles(from: string, to: string, moved: string[] = []): Promise<string[]> {
   for (const s of SUFFIXES) {
     if (!existsSync(`${from}${s}`)) continue
     await renameWithRetry(`${from}${s}`, `${to}${s}`)
@@ -95,6 +97,8 @@ async function moveDbFiles(from: string, to: string): Promise<string[]> {
   }
   return moved
 }
+
+const reasonOf = (error: unknown): string => (error as { code?: string } | null)?.code ?? String(error)
 
 /** `db/pre-restore-<ts>.db`, with `-2`, `-3`... if a restore in the same millisecond already used it. */
 function preRestorePath(paths: DataPaths, clock: Clock): string {
@@ -116,8 +120,10 @@ function preRestorePath(paths: DataPaths, clock: Clock): string {
  *    `db/pre-restore-<ts>.db*`; a missing current database is fine. A stale `-wal` left next to the
  *    restored file would be replayed into it, so it always goes with the database;
  * 5. moves the verified file into place, opens it, migrates it, closes it, and runs `startupCheck`.
- * If step 5 fails before the migration completes, the previous database is put back. The caller
- * reopens the database afterwards.
+ * Never rejects. If `close` throws, nothing has moved (`restore_failed`). If moving or step 5 fails,
+ * the restored file is set aside as `db/restore-failed-*.db` and the previous database is put back
+ * (`restore_failed`). If only `startupCheck` throws (busy, permissions), the backup IS in place:
+ * `restore_check_failed` with `params.preRestoreFile`. The caller reopens the database afterwards.
  */
 export async function restoreBackup(
   entry: Pick<BackupEntry, 'file'>,
@@ -141,16 +147,21 @@ export async function restoreBackup(
       return fail('newer_schema', { found: verified.value.schemaVersion, supported: migrations.length })
     }
 
-    await deps.close?.()
-    const pre = preRestorePath(paths, deps.clock)
-    const moved = await moveDbFiles(paths.dbFile, pre)
-    const putBack = async (): Promise<void> => {
-      for (const s of moved) await renameWithRetry(`${pre}${s}`, `${paths.dbFile}${s}`)
-    }
-    log('restore.current_moved', { to: moved.includes('') ? pre : null, moved })
-
     try {
+      await deps.close?.()
+    } catch (error) {
+      log('restore.failed', { stage: 'close', message: String(error) })
+      return fail('restore_failed', { stage: 'close', reason: reasonOf(error) })
+    }
+
+    const pre = preRestorePath(paths, deps.clock)
+    const moved: string[] = []
+    let swapped = false
+    try {
+      await moveDbFiles(paths.dbFile, pre, moved)
+      log('restore.current_moved', { to: moved.includes('') ? pre : null, moved })
       await renameWithRetry(staged, paths.dbFile)
+      swapped = true
       await fsyncDir(paths.db)
       const db = openDatabase(paths.dbFile)
       try {
@@ -159,19 +170,26 @@ export async function restoreBackup(
         db.close()
       }
     } catch (error) {
-      log('restore.failed', { message: error instanceof Error ? error.message : String(error) })
+      log('restore.failed', { stage: swapped ? 'migrate' : 'swap', message: String(error) })
       try {
-        if (existsSync(paths.dbFile)) await moveDbFiles(paths.dbFile, join(paths.db, `restore-failed-${newId()}.db`))
-        await putBack()
+        if (swapped) await moveDbFiles(paths.dbFile, join(paths.db, `restore-failed-${newId()}.db`))
+        for (const s of moved) await renameWithRetry(`${pre}${s}`, `${paths.dbFile}${s}`)
       } catch (rollbackError) {
         log('restore.rollback_failed', { message: String(rollbackError), preRestore: pre })
       }
-      return fail('restore_failed', { reason: (error as { code?: string }).code ?? String(error) })
+      return fail('restore_failed', { stage: swapped ? 'migrate' : 'swap', reason: reasonOf(error) })
     }
 
-    const report = startupCheck({ paths, clock: deps.clock, unclean: false, log })
+    const preRestoreFile = moved.includes('') ? pre : null
+    let report: StartupReport
+    try {
+      report = startupCheck({ paths, clock: deps.clock, unclean: false, log })
+    } catch (error) {
+      log('restore.check_failed', { message: String(error) })
+      return fail('restore_check_failed', { preRestoreFile, reason: reasonOf(error) })
+    }
     log('restore.done', { file: entry.file, state: report.state })
-    return { ok: true, value: { preRestoreFile: moved.includes('') ? pre : null, report } }
+    return { ok: true, value: { preRestoreFile, report } }
   } finally {
     await removeDbFiles(staged)
   }

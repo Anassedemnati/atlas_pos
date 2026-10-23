@@ -264,18 +264,6 @@ export function createBackupEngine(deps: BackupEngineDeps): BackupEngine {
   const copyToAll = (targets: BackupTarget[], localFile: string, sub: 'live' | 'full', name: string): Promise<TargetResult[]> =>
     Promise.all(targets.map((t) => copyTo(t, localFile, sub, name)))
 
-  const recordRun = (kind: BackupKind, at: string, fileName: string, snap: Snapshot, results: TargetResult[]): string => {
-    const id = newId()
-    try {
-      db.prepare(
-        'INSERT INTO backup_runs (id, at, kind, file_name, sha256, bytes, results_json) VALUES (?, ?, ?, ?, ?, ?, ?)'
-      ).run(id, at, kind, fileName, snap.sha256, snap.bytes, JSON.stringify(results))
-    } catch (error) {
-      log('backup.record_failed', { kind, fileName, message: errorMessage(error) })
-    }
-    return id
-  }
-
   const newestRun = (live: boolean): RunRow | undefined =>
     db
       .prepare(
@@ -283,6 +271,31 @@ export function createBackupEngine(deps: BackupEngineDeps): BackupEngine {
          WHERE kind ${live ? "= 'live'" : "<> 'live'"} ORDER BY at DESC, rowid DESC LIMIT 1`
       )
       .get() as RunRow | undefined
+
+  /**
+   * The newest full and live runs, read once (`backup_runs` gains a row a minute and has no index
+   * for this query: ~100 ms at 200k rows) and then kept up to date by `recordRun` and `catchUp`,
+   * the only writers. `status()` runs after every copy and on every tick, so it must stay cheap.
+   */
+  let latest: { full: RunRow | undefined; live: RunRow | undefined } | null = null
+  const latestRuns = (): { full: RunRow | undefined; live: RunRow | undefined } => {
+    latest ??= { full: newestRun(false), live: newestRun(true) }
+    return latest
+  }
+
+  const recordRun = (kind: BackupKind, at: string, fileName: string, snap: Snapshot, results: TargetResult[]): string => {
+    const id = newId()
+    const json = JSON.stringify(results)
+    try {
+      db.prepare(
+        'INSERT INTO backup_runs (id, at, kind, file_name, sha256, bytes, results_json) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).run(id, at, kind, fileName, snap.sha256, snap.bytes, json)
+      if (latest) latest[kind === 'live' ? 'live' : 'full'] = { id, fileName, sha256: snap.sha256, results: json }
+    } catch (error) {
+      log('backup.record_failed', { kind, fileName, message: errorMessage(error) })
+    }
+    return id
+  }
 
   const rotate = async (dirs: string[]): Promise<void> => {
     let retentionDays: number
@@ -325,9 +338,10 @@ export function createBackupEngine(deps: BackupEngineDeps): BackupEngine {
   const status = (): BackupStatus => {
     const nowMs = clock.now().getTime()
     const warnMs = settings.get('backup.warnAfterHours') * HOUR_MS
-    const latest = [newestRun(false), newestRun(true)]
+    const { full, live } = latestRuns()
+    const runs = [full, live]
     const behind = (id: string): boolean =>
-      latest.some((run) => run !== undefined && !parseResults(run.results).some((r) => r.targetId === id && r.ok))
+      runs.some((run) => run !== undefined && !parseResults(run.results).some((r) => r.targetId === id && r.ok))
 
     const perTarget = listTargets().map((t): TargetStatus => {
       const m = memoryOf(t)
@@ -446,6 +460,7 @@ export function createBackupEngine(deps: BackupEngineDeps): BackupEngine {
     const json = JSON.stringify(merged)
     if (json !== run.results) {
       db.prepare('UPDATE backup_runs SET results_json = ? WHERE id = ?').run(json, run.id)
+      run.results = json // `run` is the cached row
     }
     if (sub === 'full') await rotate(fresh.filter((r) => r.ok && r.file).map((r) => dirname(r.file as string)))
   }
@@ -453,12 +468,11 @@ export function createBackupEngine(deps: BackupEngineDeps): BackupEngine {
   const retryNow = async (): Promise<void> => {
     try {
       const targets = listTargets()
-      const full = newestRun(false)
+      const { full, live } = latestRuns()
       if (full) {
         const local = join(paths.backups, full.fileName)
         if (existsSync(local)) await catchUp(full, local, 'full', targets)
       }
-      const live = newestRun(true)
       if (live) {
         // The local live copy may have been replaced by a newer run that was never recorded: only send it if it is this run's.
         const local = join(localLiveDir, LIVE_FILE_NAME)

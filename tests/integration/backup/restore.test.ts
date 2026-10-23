@@ -152,6 +152,31 @@ describe('listBackups / restoreBackup', () => {
     expect(readdirSync(fx.paths.db).filter((n) => n.startsWith('pre-restore'))).toEqual([])
   })
 
+  it('reports a close that throws as restore_failed, with nothing moved', async () => {
+    await backupNow()
+    const [entry] = await listBackups([target])
+
+    const result = await restoreBackup(entry!, fx.paths, {
+      clock,
+      close: () => {
+        throw Object.assign(new Error('busy'), { code: 'SQLITE_BUSY' })
+      }
+    })
+
+    expect(result).toEqual({
+      ok: false,
+      error: {
+        code: 'restore_failed',
+        messageKey: 'errors.restore_failed',
+        params: { stage: 'close', reason: 'SQLITE_BUSY' }
+      }
+    })
+    expect(existsSync(fx.paths.dbFile)).toBe(true)
+    expect(countProducts(fx.db)).toBe(5)
+    expect(readdirSync(fx.paths.db).filter((n) => n.startsWith('pre-restore'))).toEqual([])
+    expect(readdirSync(join(fx.paths.backups, 'tmp'))).toEqual([])
+  })
+
   it('refuses a tampered backup without touching the current database', async () => {
     const fileName = await backupNow()
     const file = join(disk, 'AtlasBackup', 'full', fileName)
