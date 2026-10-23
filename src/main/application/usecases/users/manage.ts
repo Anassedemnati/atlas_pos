@@ -8,7 +8,7 @@ import {
   normalizeUsername
 } from '../../../domain/users/credentials'
 import { ProfileInputSchema, type ProfileInput } from '../../../domain/users/profile'
-import { holdsAll, requirePermission, type Session } from '../../../domain/users/session'
+import { holdsProfile, requirePermission, type Session } from '../../../domain/users/session'
 import { appendEvent } from '../../../infrastructure/db/event-log'
 import type { UserEdit, UsersRepo } from '../../../infrastructure/db/repos/users-repo'
 import type { Tx, UnitOfWork } from '../../../infrastructure/db/uow'
@@ -43,15 +43,16 @@ export interface ManageUseCases {
    * that reactivating them can never create a duplicate). There is always at least one active user
    * whose profile holds every permission: a save that would leave none is refused with `last_manager`
    * and changes nothing. A session can only hand out what it holds: the target profile, and the
-   * profile the edited user has now, must hold nothing the session lacks (`forbidden`,
+   * profile the edited user has now, must hold no permission the session lacks and no discount limit
+   * above the session's own (unless it holds `order.discount.override`) (`forbidden`,
    * `params.reason = 'privilege_escalation'`), so a sub-manager can neither create a Gérant nor
    * reset a Gérant's PIN or password.
    */
   saveUser(session: Session, input: SaveUserInput): Promise<Result<{ id: string }>>
   /**
    * Creates or edits a permission profile. Needs `users.manage`; `last_manager` applies as for users.
-   * The same privilege boundary: the new permissions, and those of the profile being edited, must all
-   * be held by the session.
+   * The same privilege boundary: the new permissions and discount limit, and those of the profile
+   * being edited, must all be within what the session holds.
    */
   saveProfile(session: Session, input: ProfileInput): Result<{ id: string }>
 }
@@ -90,8 +91,11 @@ export function createManageUseCases(deps: { uow: UnitOfWork; users: UsersRepo }
     const target = users.getProfile(input.profileId)
     if (!target) throw invalidInput('profileId', 'unknown profile')
     // Before any PIN check: a refused session must not learn anything about other users' PINs.
-    if (!holdsAll(session, target.permissions)) throw escalation()
-    if (existing && !holdsAll(session, users.getProfile(existing.profileId)?.permissions ?? [])) throw escalation()
+    if (!holdsProfile(session, target)) throw escalation()
+    if (existing) {
+      const current = users.getProfile(existing.profileId)
+      if (current && !holdsProfile(session, current)) throw escalation()
+    }
 
     // Username and password: a username without a password cannot log in, a password without a username is never asked for.
     let username = existing?.username ?? null
@@ -163,9 +167,7 @@ export function createManageUseCases(deps: { uow: UnitOfWork; users: UsersRepo }
     const input = parsed.data
     const existing = input.id === undefined ? undefined : users.getProfile(input.id)
     if (input.id !== undefined && !existing) throw invalidInput('id', 'unknown profile')
-    if (!holdsAll(session, input.permissions) || (existing && !holdsAll(session, existing.permissions))) {
-      throw escalation()
-    }
+    if (!holdsProfile(session, input) || (existing && !holdsProfile(session, existing))) throw escalation()
 
     const profile = {
       id: input.id ?? newId(),

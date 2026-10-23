@@ -82,17 +82,18 @@ export function createOverrideUseCases(deps: { uow: UnitOfWork; clock: Clock; us
       const lockedMeanwhile = limiter.lockedUntil(PROMPT)
       if (lockedMeanwhile) return refuse('locked', { until: lockedMeanwhile })
 
-      // The user may have been deactivated, locked, or given another PIN while the hashes ran: the PIN
-      // was checked against `candidate.pinHash`, so only a user still holding that hash counts.
-      const holders = candidates.filter((candidate) => {
-        if (!holderIds.has(candidate.id)) return false
+      // The user may have been deactivated, locked, moved to another profile or given another PIN while the
+      // hashes ran: the PIN was checked against `candidate.pinHash`, so only a user still holding that hash
+      // counts, and what they may approve is read from the record as it is now.
+      const holders = candidates.flatMap((candidate) => {
+        if (!holderIds.has(candidate.id)) return []
         const current = users.getUser(candidate.id)
-        return (
+        const stillHolds =
           current !== undefined &&
           current.active &&
           current.pinHash === candidate.pinHash &&
           !isLocked(current.locks.pin.lockedUntil, clock.now())
-        )
+        return stillHolds ? [current] : []
       })
       if (holders.length === 0) return deny(permission, 'bad_pin')
       const approver = holders.find((user) => users.getProfile(user.profileId)?.permissions.includes(permission))

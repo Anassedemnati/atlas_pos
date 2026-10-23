@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { AppErrorException } from '../../../src/main/application/errors'
-import { hasPermission, holdsAll, requirePermission } from '../../../src/main/domain/users/session'
+import { hasPermission, holdsAll, holdsProfile, requirePermission } from '../../../src/main/domain/users/session'
 import { CASHIER_PERMISSIONS, sessionOf } from '../../helpers/users'
 
 describe('hasPermission / requirePermission', () => {
@@ -15,6 +15,16 @@ describe('hasPermission / requirePermission', () => {
     expect(holdsAll(cashier, ['order.discount', 'report.x'])).toBe(true)
     expect(holdsAll(cashier, ['order.discount', 'users.manage'])).toBe(false)
     expect(holdsAll(cashier, [])).toBe(true)
+  })
+
+  it('holdsProfile needs every permission and a discount limit no higher than the session, unless it may override', () => {
+    const profile = (maxDiscountBp: number, ...permissions: Parameters<typeof holdsAll>[1]) => ({ permissions, maxDiscountBp })
+    expect(holdsProfile(cashier, profile(1000, 'order.discount'))).toBe(true)
+    expect(holdsProfile(cashier, profile(1001, 'order.discount'))).toBe(false)
+    expect(holdsProfile(cashier, profile(0, 'users.manage'))).toBe(false)
+    const lead = sessionOf('u2', ['order.discount', 'order.discount.override'], 0)
+    expect(holdsProfile(lead, profile(10000, 'order.discount'))).toBe(true)
+    expect(holdsProfile(lead, profile(10000, 'users.manage'))).toBe(false)
   })
 
   it('requirePermission passes silently when the permission is held', () => {

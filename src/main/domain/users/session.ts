@@ -42,3 +42,16 @@ export function requirePermission(session: Session, permission: Permission): voi
 /** True when the session holds every one of `permissions` (an empty list is trivially held). */
 export const holdsAll = (session: Session, permissions: readonly Permission[]): boolean =>
   permissions.every((permission) => session.permissions.has(permission))
+
+/**
+ * Could this session hand out the profile `profile`? It must hold every permission of it, and its
+ * discount limit must not exceed the session's own, unless the session may approve discounts over any
+ * limit (`order.discount.override`, a full manager). Used by `saveProfile` and `saveUser`, so that
+ * managing users never raises anyone, the session included, above what the session itself holds.
+ */
+export const holdsProfile = (
+  session: Session,
+  profile: { permissions: readonly Permission[]; maxDiscountBp: number }
+): boolean =>
+  holdsAll(session, profile.permissions) &&
+  (profile.maxDiscountBp <= session.maxDiscountBp || hasPermission(session, 'order.discount.override'))

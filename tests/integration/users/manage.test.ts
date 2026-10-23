@@ -542,6 +542,83 @@ describe('privilege boundary: a session only hands out what it holds', () => {
     expect(edited.ok).toBe(true)
   })
 
+  describe('discount limits', () => {
+    // sub() has a 20 % limit and no order.discount.override.
+    const senior = () =>
+      h.service.saveProfile(h.manager, { name: { fr: 'Senior' }, permissions: ['order.discount'], maxDiscountBp: 5000 })
+    const idOf = (r: { ok: boolean; value?: { id: string } }): string => r.value!.id
+    const limit = (id: string): number => profileRow(id).max_discount_bp
+
+    it('refuses to create a profile with a higher discount limit than the session, and to raise one', () => {
+      const create = h.service.saveProfile(sub(), { name: { fr: 'Libre' }, permissions: ['order.discount'], maxDiscountBp: 10000 })
+      expect(create).toMatchObject(escalation)
+      const raise = h.service.saveProfile(sub(), {
+        id: 'p-caissier',
+        name: { fr: 'Caissier' },
+        permissions: ['order.discount', 'report.x', 'ticket.reprint'],
+        maxDiscountBp: 2001
+      })
+      expect(raise).toMatchObject(escalation)
+      expect(count('profiles')).toBe(3)
+      expect(limit('p-caissier')).toBe(1000)
+    })
+
+    it('allows a limit up to its own, inclusive', () => {
+      const r = h.service.saveProfile(sub(), {
+        id: 'p-caissier',
+        name: { fr: 'Caissier' },
+        permissions: ['order.discount', 'report.x', 'ticket.reprint'],
+        maxDiscountBp: 2000
+      })
+      expect(r.ok).toBe(true)
+      expect(limit('p-caissier')).toBe(2000)
+    })
+
+    it('refuses to edit a profile whose current limit is above its own, even to lower it', () => {
+      const id = idOf(senior() as { ok: boolean; value?: { id: string } })
+      const r = h.service.saveProfile(sub(), { id, name: { fr: 'Senior' }, permissions: ['order.discount'], maxDiscountBp: 100 })
+      expect(r).toMatchObject(escalation)
+      expect(limit(id)).toBe(5000)
+    })
+
+    it('refuses to assign a cashier to a higher-limit profile, and to edit a user already on one', async () => {
+      const id = idOf(senior() as { ok: boolean; value?: { id: string } })
+      const before = row('u-sara')
+      const move = await h.service.saveUser(sub(), { id: 'u-sara', displayName: 'Sara', profileId: id })
+      expect(move).toMatchObject(escalation)
+      expect(row('u-sara')).toEqual(before)
+
+      // A user who is already on that profile cannot be edited either: no PIN reset of a higher-limit user.
+      h.t.db.prepare('UPDATE users SET profile_id = ? WHERE id = ?').run(id, 'u-youssef')
+      const reset = await h.service.saveUser(sub(), { id: 'u-youssef', displayName: 'Youssef', profileId: 'p-serveur', pin: '7777' })
+      expect(reset).toMatchObject(escalation)
+      const create = await h.service.saveUser(sub(), { displayName: 'New', profileId: id, pin: '4567' })
+      expect(create).toMatchObject(escalation)
+    })
+
+    it('lets a full manager (order.discount.override) set any limit, as long as it holds the permissions', async () => {
+      const lead = sessionOf(
+        'u-lead',
+        ['users.manage', 'order.discount', 'order.discount.override', 'report.x', 'ticket.reprint'],
+        0
+      )
+      const profile = h.service.saveProfile(lead, { name: { fr: 'Libre' }, permissions: ['order.discount'], maxDiscountBp: 10000 })
+      expect(profile.ok).toBe(true)
+      const assigned = await h.service.saveUser(lead, { id: 'u-sara', displayName: 'Sara', profileId: idOf(profile as never) })
+      expect(assigned.ok).toBe(true)
+      // The permission part of the boundary still applies to it.
+      const over = h.service.saveProfile(lead, { name: { fr: 'X' }, permissions: ['backup.restore'], maxDiscountBp: 0 })
+      expect(over).toMatchObject(escalation)
+    })
+
+    it('lets the Gérant create a 100 % profile and assign it', async () => {
+      const profile = h.service.saveProfile(h.manager, { name: { fr: 'Libre' }, permissions: ['order.discount'], maxDiscountBp: 10000 })
+      expect(profile.ok).toBe(true)
+      const assigned = await h.service.saveUser(h.manager, { id: 'u-sara', displayName: 'Sara', profileId: idOf(profile as never) })
+      expect(assigned.ok).toBe(true)
+    })
+  })
+
   it('does not restrict a session that holds everything', async () => {
     const r = await h.service.saveUser(h.manager, { displayName: 'Another Gérant', profileId: h.seeded.profiles.gerant, pin: '4567' })
     expect(r.ok).toBe(true)

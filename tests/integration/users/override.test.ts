@@ -115,6 +115,13 @@ describe('authorizeOverride', () => {
     expect(h.eventRows().filter((e) => e.type === 'override.granted')).toHaveLength(0)
   })
 
+  it('refuses when the manager is moved to another profile while the PIN is being checked', async () => {
+    const attempt = h.service.authorizeOverride(PINS.amine, 'order.void_sent')
+    h.t.db.prepare("UPDATE users SET profile_id = 'p-serveur' WHERE id = 'u-amine'").run()
+    expect(code(await attempt)).toBe('invalid_credentials')
+    expect(h.eventRows().filter((e) => e.type === 'override.granted')).toHaveLength(0)
+  })
+
   it('refuses when the profile loses the permission while the PIN is being checked', async () => {
     const attempt = h.service.authorizeOverride(PINS.amine, 'order.void_sent')
     h.t.db.prepare("UPDATE profiles SET permissions_json = '[\"order.discount\"]' WHERE id = 'p-gerant'").run()
