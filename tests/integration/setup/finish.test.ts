@@ -1,4 +1,5 @@
-import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { BUSINESS_TYPES } from '../../../src/main/domain/config/settings-registry'
@@ -9,7 +10,7 @@ import { createSettingsRepo } from '../../../src/main/infrastructure/db/repos/se
 import { readInstallation } from '../../../src/main/infrastructure/fs/installation'
 import { verifySecret } from '../../../src/main/infrastructure/security/password'
 import { isManagerPermissions } from '../../../src/main/domain/users/profile'
-import { completeDraft, MANAGER_PASSWORD, MANAGER_PIN, setupEnv, TECH_CODE, testSetupService, type SetupEnv } from '../../helpers/setup'
+import { completeDraft, MANAGER_PASSWORD, MANAGER_PIN, setupEnv, TECH_CODE, TEMPLATE_MEDIA_DIR, testSetupService, type SetupEnv } from '../../helpers/setup'
 
 let env: SetupEnv
 beforeEach(() => {
@@ -279,5 +280,49 @@ describe('finishSetup', () => {
     expect(createSettingsRepo(db).get('business.logo')).toBe('media/logo.svg')
     db.close()
   })
-})
 
+  it('copies the template photos to media/products and stores their path on the products', async () => {
+    const template = loadTemplate('restaurant')
+    const withImage = template.products.filter((p) => p.image)
+    expect(withImage.length).toBeGreaterThan(5)
+    const service = testSetupService({ paths: env.paths })
+    service.saveDraft(completeDraft(env, { businessType: 'restaurant', modules: template.modules }))
+    expect(await service.finishSetup()).toMatchObject({ ok: true })
+
+    const db = openDatabaseReadOnly(env.paths.dbFile)
+    const rows = db.prepare('SELECT name_json, image_path FROM products').all() as { name_json: string; image_path: string | null }[]
+    db.close()
+    const stored = new Map(rows.map((r) => [(JSON.parse(r.name_json) as { fr: string }).fr, r.image_path]))
+    for (const product of template.products) {
+      const path = stored.get(product.name.fr)
+      if (!product.image) {
+        expect(path, product.code).toBeNull()
+        continue
+      }
+      expect(path).toBe(`media/products/${product.code}.webp`)
+      const copy = join(env.paths.root, path!)
+      expect(existsSync(copy), copy).toBe(true)
+      expect(readFileSync(copy).equals(readFileSync(join(TEMPLATE_MEDIA_DIR, 'restaurant', `${product.code}.webp`)))).toBe(true)
+    }
+    expect(readdirSync(join(env.paths.media, 'products'))).toHaveLength(withImage.length)
+  })
+
+  it('copies no photo for an empty catalogue', async () => {
+    const empty = testSetupService({ paths: env.paths })
+    empty.saveDraft(completeDraft(env, { catalogSource: 'empty' }))
+    expect(await empty.finishSetup()).toMatchObject({ ok: true })
+    expect(existsSync(join(env.paths.media, 'products'))).toBe(false)
+  })
+
+  it('keeps going, without the photo, when a photo of the template is missing', async () => {
+    const lonely = mkdtempSync(join(tmpdir(), 'atlas-nomedia-'))
+    try {
+      const service = testSetupService({ paths: env.paths, templateMediaDir: lonely })
+      service.saveDraft(completeDraft(env))
+      expect(await service.finishSetup()).toMatchObject({ ok: true, value: { warnings: [] } })
+      expect(count(env.paths.dbFile, 'SELECT COUNT(*) FROM products WHERE image_path IS NOT NULL')).toBe(0)
+    } finally {
+      rmSync(lonely, { recursive: true, force: true })
+    }
+  })
+})

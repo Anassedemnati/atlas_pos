@@ -29,6 +29,7 @@ import { AppErrorException } from '../../errors'
 import type { Clock, EventBus } from '../../ports'
 import { invalidInput } from '../users/outcome'
 import type { DraftStore } from './draft-store'
+import { installTemplateImages } from './media'
 import { sectionsFor, sourceOf, type SetupSource } from './sections'
 import { seedCatalog, seedFloor, seedImport, seedPaymentMethods, seedPrinters, seedProfiles, seedRouting } from './seed'
 import { ensureTargets } from './targets'
@@ -43,6 +44,8 @@ export interface FinishDeps {
   store: DraftStore
   /** Registers (or not) the start with the OS: Electron's, injected so that this stays testable. */
   setAutostart(enabled: boolean): void
+  /** Where the template illustrations are (`<template>/<code>.webp`); without it a template catalogue has no photos. */
+  templateMediaDir?: string
   /** Writes `installation.json`. Replaceable by tests to make the setup fail at that point. */
   writeInstallation?: typeof writeInstallationFile
 }
@@ -166,6 +169,8 @@ export async function runFinish(deps: FinishDeps): Promise<FinishValue> {
   if (backups.some((b, i) => b.targetKey !== stored.backups[i]!.targetKey)) store.write(draft)
   await ensureTargets(backups)
   const logo = installLogo(draft, paths)
+  // Only a template catalogue has illustrations (an import, an empty catalogue or a profile has none).
+  const images = draft.catalogSource === 'template' ? installTemplateImages(source.template, deps.templateMediaDir, paths, log) : undefined
 
   // The database that is already there is the leftover of a stopped attempt, which is replaced.
   if (leftover) await removeDbFiles(paths.dbFile)
@@ -189,7 +194,7 @@ export async function runFinish(deps: FinishDeps): Promise<FinishValue> {
       const profileIds = seedProfiles(tx, usersRepo, sections.profiles)
       seedPaymentMethods(tx, sections.paymentMethods)
       seedFloor(tx, sections.rooms, sections.tables)
-      const categoryIds = rows ? seedImport(tx, catalogRepo, rows) : seedCatalog(tx, catalogRepo, sections)
+      const categoryIds = rows ? seedImport(tx, catalogRepo, rows) : seedCatalog(tx, catalogRepo, sections, images)
       const printerIds = seedPrinters(tx, draft.printers)
       seedRouting(tx, routingOf(draft, source), categoryIds, printerIds)
       draft.users.forEach((user, i) => {

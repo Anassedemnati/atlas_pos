@@ -87,3 +87,11 @@ export function ensureDataLayout(dir: string): DataPaths {
   }
   return paths
 }
+
+/**
+ * The template illustrations (`<template>/<code>.webp`): `resources/templates/media` of the project in development
+ * (the app path is the project folder), `<resources>/templates/media` once packaged (electron-builder `extraResources`).
+ */
+export function resolveTemplateMediaDir(packaged: boolean, appPath: string, resourcesPath: string): string {
+  return packaged ? join(resourcesPath, 'templates', 'media') : join(appPath, 'resources', 'templates', 'media')
+}

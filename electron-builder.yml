@@ -6,6 +6,13 @@ directories:
 files:
   - out/**/*
   - package.json
+# The template product photos are read from disk at setup (the template JSON is bundled, the images are not):
+# they land in <resources>/templates/media, next to app.asar. The `.webp.json` provenance sidecars stay in the repo.
+extraResources:
+  - from: resources/templates/media
+    to: templates/media
+    filter:
+      - "**/*.webp"
 # better-sqlite3 and serialport ship N-API prebuilds: never rebuild native modules.
 npmRebuild: false
 asar: true

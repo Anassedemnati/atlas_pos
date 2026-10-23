@@ -24,12 +24,14 @@ export type CategoryIds = Map<string, string>
 
 /**
  * Inserts a catalogue given as sections (a template's, or a profile's), in array order (`sort` = position),
- * with fresh ids. Returns the id of each category by its code. Must run inside `tx`.
+ * with fresh ids. `images` is the stored image path of the products that have one, by product code. Returns the id
+ * of each category by its code. Must run inside `tx`.
  */
 export function seedCatalog(
   tx: Tx,
   repo: CatalogRepo,
-  s: { categories: Category[]; products: CatalogProduct[]; modifierGroups: ModifierGroup[]; menus: Menu[] }
+  s: { categories: Category[]; products: CatalogProduct[]; modifierGroups: ModifierGroup[]; menus: Menu[] },
+  images?: ReadonlyMap<string, string>
 ): CategoryIds {
   const categoryIds: CategoryIds = new Map()
   s.categories.forEach((c, sort) => {
@@ -62,7 +64,7 @@ export function seedCatalog(
       barcode: p.barcode ?? null,
       soldByWeight: p.sold_by_weight,
       color: p.color ?? null,
-      imagePath: null,
+      imagePath: images?.get(p.code) ?? null,
       keySize: p.key_size,
       sort,
       active: p.active,

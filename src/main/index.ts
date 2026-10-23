@@ -19,11 +19,12 @@ import { setAutostart } from './lifecycle/autostart'
 import { startBackoffice } from './lifecycle/backoffice'
 import { setDurableLogDir, writeDurable } from './lifecycle/fatal'
 import { acquireInstanceLock } from './lifecycle/instance-lock'
+import { handleMediaProtocol, registerMediaScheme } from './lifecycle/media-protocol'
 import { acquireRunningLock, type RunningLock } from './lifecycle/running-lock'
 import { createShellPorts, sendToWindows, type AppWindows } from './lifecycle/shell-ports'
 import { createCustomerDisplay, createTillWindow, loadRoute, type WindowConfig } from './lifecycle/windows'
 import { createConsoleLogger, createFileLogger, describeError, type Logger } from './logger'
-import { ensureDataLayout, resolveDataDir } from './paths'
+import { ensureDataLayout, resolveDataDir, resolveTemplateMediaDir } from './paths'
 import { RESTART_NORMALLY_EXIT_CODE } from './supervisor-policy'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -31,6 +32,9 @@ const dev = !app.isPackaged
 const exitAfterBoot = process.env['ATLAS_EXIT_AFTER_BOOT'] === '1'
 const isChild = process.argv.includes('--child')
 const safeMode = process.argv.includes('--safe-mode')
+
+// Before the app is ready, or Chromium ignores it.
+registerMediaScheme()
 
 const windowConfig: WindowConfig = {
   preload: join(here, '../preload/index.cjs'),
@@ -163,6 +167,8 @@ async function start(): Promise<void> {
   const paths = ensureDataLayout(dataDir)
   log = createFileLogger(paths.logs, dev && !exitAfterBoot)
   log.info('app.start', { version: app.getVersion(), packaged: app.isPackaged, safeMode, dataDir: paths.root })
+  // Product photos and the logo: only `<data dir>/media` is reachable through `atlas-media://local/...`.
+  optional('media-protocol', () => handleMediaProtocol(paths.media))
   // 2. The running lock: left behind, it says the previous run did not quit cleanly.
   runningLock = acquireRunningLock(paths)
 
@@ -212,7 +218,8 @@ async function start(): Promise<void> {
     rasterize: renderHtmlToBitmap,
     htmlPrinter,
     setAutostart,
-    restore: (file) => current.restore(file)
+    restore: (file) => current.restore(file),
+    templateMediaDir: resolveTemplateMediaDir(app.isPackaged, app.getAppPath(), process.resourcesPath)
   })
   register(ipcMain, { paths, runtime: current, setup, shell, log, clock, durableLog: writeDurable }, sessions)
   forwardEvents(bus, (event) => sendToWindows(windows, event))

@@ -1,6 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { vi } from 'vitest'
 import type { Result } from '../../src/shared/result'
 import type { WizardPatch } from '../../src/shared/setup/draft'
@@ -8,6 +9,9 @@ import { createEventBus } from '../../src/main/application/events'
 import { createSetupService, type SetupDeps, type SetupService } from '../../src/main/application/usecases/setup'
 import type { Logger } from '../../src/main/logger'
 import { ensureDataLayout, type DataPaths } from '../../src/main/paths'
+
+/** The template illustrations of the repository (what the app reads in development). */
+export const TEMPLATE_MEDIA_DIR = fileURLToPath(new URL('../../resources/templates/media', import.meta.url))
 
 export const log = (): Logger => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), flush: vi.fn() })
 
@@ -24,6 +28,7 @@ export function testSetupService(
       throw new Error('no rendering in tests')
     },
     setAutostart: () => {},
+    templateMediaDir: TEMPLATE_MEDIA_DIR,
     restore: async () => ({ ok: false, error: { code: 'restore_unavailable', messageKey: 'errors.restore_unavailable' } }) as Result<{ route: string }>,
     ...deps
   })

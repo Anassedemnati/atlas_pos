@@ -38,6 +38,8 @@ export interface SetupDeps {
   restore(file: string): Promise<Result<{ route: string }>>
   /** Replaceable by tests, to make the end of the setup fail. */
   writeInstallation?: typeof writeInstallation
+  /** Where the template product illustrations are (see `resolveTemplateMediaDir`). */
+  templateMediaDir?: string
 }
 
 const LOGO_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.svg'])
