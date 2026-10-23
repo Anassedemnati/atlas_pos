@@ -1,7 +1,11 @@
+import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
+import './theme'
+import './app/i18n'
+import { App } from './app/App'
 
-function App() {
-  return <h1>Atlas POS</h1>
-}
-
-createRoot(document.getElementById('root')!).render(<App />)
+createRoot(document.getElementById('root')!).render(
+  <StrictMode>
+    <App />
+  </StrictMode>
+)
