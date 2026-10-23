@@ -66,6 +66,15 @@ export function createHttpServer(deps: HttpDeps, opts: HttpServerOptions): Fasti
   const env: Env = { deps, ipc: ipcDepsFor(deps), ipcSessions, sessions }
 
   registerGuard(app)
+  // A restore started anywhere (the till's own screen included) replaces the services: the users may not be the same, so
+  // every browser signs in again. `null` while a restore runs is not a change.
+  let lastServices: unknown = null
+  app.addHook('onRequest', async () => {
+    const current = deps.runtime.services()
+    if (!current || current === lastServices) return
+    if (lastServices !== null) sessions.clear()
+    lastServices = current
+  })
   void app.register(fastifyCookie)
   app.addContentTypeParser('application/octet-stream', { parseAs: 'buffer', bodyLimit: UPLOAD_LIMIT }, (_request, body, done) => done(null, body))
 

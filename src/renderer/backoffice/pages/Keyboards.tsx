@@ -7,7 +7,8 @@ import { PageHeader } from '../components/PageHeader'
 import { SortableList } from '../components/SortableList'
 import { useFormat } from '../format'
 
-const inputOf = ({ sort: _sort, ...rest }: ProductDto) => rest
+/** An edit without the position and without the live stock (the copy loaded here may be older than the till's sales). */
+const inputOf = ({ sort: _sort, stockMilli: _stock, ...rest }: ProductDto) => rest
 
 /** The key layouts of the till: the order of the category tabs, and the order and size of the product keys of each. */
 export function Keyboards() {

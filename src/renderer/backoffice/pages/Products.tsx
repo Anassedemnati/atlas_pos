@@ -72,8 +72,11 @@ const fromProduct = (p: ProductDto): Draft => ({
   modifierGroupIds: [...p.modifierGroupIds]
 })
 
-/** What `catalog.saveProduct` takes for an existing product (everything but its position, which only reordering changes). */
-const inputOf = ({ sort: _sort, ...rest }: ProductDto) => rest
+/**
+ * What `catalog.saveProduct` takes for an existing product, from the copy this page loaded: without its position (only
+ * reordering changes it) and without its live stock (sales at the till move it; a field left out of an edit is kept).
+ */
+const inputOf = ({ sort: _sort, stockMilli: _stock, ...rest }: ProductDto) => rest
 
 /** The products: a table with search and filters, an edit drawer, the Excel / CSV import and export. */
 export function Products() {

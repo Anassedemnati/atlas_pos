@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { listBackups } from '../../../src/main/infrastructure/backup/restore'
 import { body, startHttp, type Http } from './harness'
 
 let h: Http
@@ -73,5 +74,20 @@ describe('backups over HTTP', () => {
     expect((await h.login()).statusCode).toBe(200)
     expect(body<{ value: { categories: unknown[] } }>(await h.api('GET', '/api/catalog')).value.categories).toHaveLength(before)
     expect(readFileSync(h.paths.dbFile).length).toBeGreaterThan(0)
+  })
+})
+
+describe('a restore started at the till', () => {
+  it('signs every browser out too, even though the request did not come through HTTP', async () => {
+    expect((await h.login()).statusCode).toBe(200)
+    expect((await h.api('GET', '/api/catalog')).statusCode).toBe(200)
+    await h.api('POST', '/api/backups/run')
+    const [entry] = await listBackups([], h.paths.backups)
+    // What the IPC `backup.restore` handler does: the runtime restores, the till's own sessions are cleared.
+    const restored = await h.runtime.restore(entry!.file)
+    expect(restored.ok).toBe(true)
+    expect((await h.api('GET', '/api/catalog')).statusCode).toBe(401)
+    expect((await h.login()).statusCode).toBe(200)
+    expect((await h.api('GET', '/api/catalog')).statusCode).toBe(200)
   })
 })

@@ -101,8 +101,23 @@ describe('reports', () => {
     expect((await h.api('GET', `/api/reports/export?from=${today}&to=${today}&group=day&format=pdf`)).statusCode).toBe(400)
   })
 
-  it('needs the report permission: Sara (cashier) has no sign-in here at all', async () => {
-    expect((await h.app.inject({ method: 'POST', url: '/api/auth/login', payload: { username: 'sara', password: 'whatever-it-is' } })).statusCode).toBe(401)
+  it('needs the report permission: a user who may sign in but not read reports gets 403 on them', async () => {
+    const manager = await h.till()
+    const services = h.runtime.services()!
+    const profile = ok(services.users.saveProfile(manager, { name: { fr: 'Accès seul' }, permissions: ['backoffice.login'], maxDiscountBp: 0 }))
+    ok(await services.users.saveUser(manager, { displayName: 'Lecteur', profileId: profile.id, pin: '5678', username: 'lecteur', password: 'Lecteur-Pass-2026' }))
+    const login = await h.app.inject({ method: 'POST', url: '/api/auth/login', payload: { username: 'lecteur', password: 'Lecteur-Pass-2026' } })
+    expect(login.statusCode).toBe(200)
+    const cookie = `atlas_sid=${login.cookies[0]!.value}`
+    for (const url of [`/api/reports?from=${today}&to=${today}`, `/api/reports/z?from=${today}&to=${today}`, `/api/reports/export?from=${today}&to=${today}&group=day&format=csv`, '/api/journal']) {
+      const response = await h.app.inject({ method: 'GET', url, headers: { cookie } })
+      expect(response.statusCode, url).toBe(403)
+      expect(body(response)).toMatchObject({ error: { code: 'forbidden' } })
+    }
+    // The dashboard still opens, without figures.
+    const dashboard = await h.app.inject({ method: 'GET', url: '/api/dashboard', headers: { cookie } })
+    expect(dashboard.statusCode).toBe(200)
+    expect(body<{ value: { today: unknown } }>(dashboard).value.today).toBeNull()
   })
 })
 

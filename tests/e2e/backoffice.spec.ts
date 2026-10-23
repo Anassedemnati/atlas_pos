@@ -155,6 +155,8 @@ test.describe.serial('LAN back office', () => {
     await drawer.getByTestId('product-price').fill('85,00')
     await drawer.getByRole('button', { name: /^Catégorie/ }).click()
     await page.getByRole('option', { name: 'Pâtisserie marocaine' }).click()
+    await drawer.getByRole('switch', { name: 'Suivre le stock' }).click()
+    await drawer.getByLabel('Stock', { exact: true }).fill('10')
     await shot('04-product-drawer')
     await drawer.getByTestId('product-save').click()
     const row = page.getByTestId('product-row-Pastilla')
@@ -171,8 +173,18 @@ test.describe.serial('LAN back office', () => {
   test('a product can be edited, searched and switched off from the table', async () => {
     await page.getByTestId('product-search').fill('pastilla')
     await expect(page.getByTestId('product-row-Pastilla')).toBeVisible()
+    // Sales at the till lower the stock while this page still shows the 10 it loaded: switching the product off must not put them back.
+    const me = (await (await page.request.get(`${base}/api/auth/me`)).json()).value as { csrfToken: string }
+    const productId = (await (await page.request.get(`${base}/api/catalog`)).json()).value.products.find((p: { name: { fr: string } }) => p.name.fr === 'Pastilla').id
+    const sold = await page.request.post(`${base}/api/catalog/stock`, { headers: { 'x-csrf-token': me.csrfToken }, data: { productId, deltaMilli: -3000, reason: 'ventes' } })
+    expect(sold.ok()).toBe(true)
+    const stockOf = async (): Promise<number> => (await (await page.request.get(`${base}/api/catalog`)).json()).value.products.find((p: { name: { fr: string } }) => p.name.fr === 'Pastilla').stockMilli
+    // 10 typed in the drawer, one on the till's open order, three just sold: the page still shows 10.
+    const live = await stockOf()
+    expect(live).toBe(6000)
     await page.getByTestId('product-row-Pastilla').getByRole('switch').click()
     await expect.poll(async () => (await (await page.request.get(`${base}/api/catalog`)).json()).value.products.find((p: { name: { fr: string } }) => p.name.fr === 'Pastilla').active).toBe(false)
+    expect(await stockOf()).toBe(live)
     await page.getByTestId('product-search').fill('')
   })
 
