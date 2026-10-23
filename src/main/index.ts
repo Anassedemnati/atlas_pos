@@ -9,6 +9,7 @@ import { runBootCheck } from './boot-check'
 import { createRuntime, type Runtime } from './composition/runtime'
 import type { Services } from './composition/services'
 import { createSetupService } from './application/usecases/setup'
+import { sweepFinishedSetup } from './application/usecases/setup/draft-store'
 import { createElectronHtmlPrinter } from './infrastructure/printing/electron/os-print'
 import { renderHtmlToBitmap } from './infrastructure/printing/electron/render-html-to-bitmap'
 import { forwardEvents } from './interfaces/ipc/events'
@@ -247,7 +248,10 @@ async function start(): Promise<void> {
   // 6. Background work, only now: printing renders in hidden windows, which must never be the last ones.
   // None of it is needed to sell: a failure is logged and the till carries on.
   optional('background', () => current.startBackground())
-  if (services) startServiceDependents(current, services, sessions)
+  if (services) {
+    optional('setup-sweep', () => sweepFinishedSetup(paths))
+    startServiceDependents(current, services, sessions)
+  }
   // Whichever database is open (it may be created by the setup, or replaced by a restore).
   bus.subscribe('settings.changed', ({ keys }) => {
     const now = current.services()

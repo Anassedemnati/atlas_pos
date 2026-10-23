@@ -68,3 +68,13 @@ export function createDraftStore(paths: Pick<DataPaths, 'config'>): DraftStore {
     }
   }
 }
+
+/**
+ * A finished installation keeps no wizard files. A power cut between writing `installation.json` and deleting the
+ * draft leaves them behind for good (the setup never runs again), with the PINs in them: swept at each start.
+ */
+export function sweepFinishedSetup(paths: Pick<DataPaths, 'config'>): void {
+  const store = createDraftStore(paths)
+  store.clear()
+  rmSync(store.attemptFile, { force: true })
+}

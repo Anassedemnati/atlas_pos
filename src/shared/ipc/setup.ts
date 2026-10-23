@@ -38,7 +38,7 @@ export const setupChannels = {
   /** The saved wizard state (the defaults for a new setup), and the profile loaded into it, if any. */
   'setup.getDraft': def<SetupDraftStateDto>()(none, 'handler'),
   /**
-   * Merges `patch` into the draft and saves it atomically. Saving `legal` clears `legalFromProfile`. With
+   * Merges `patch` into the draft and saves it atomically. Saving `legal` clears `legalFromProfile`: send `legal` only from the Entreprise step's own save (the confirmation of a profile's identity). With
    * `validateStep` (the step being left, before "Suivant"), the merged draft must pass that step's rules,
    * else `invalid_input` (`params.field`) and nothing is saved.
    */

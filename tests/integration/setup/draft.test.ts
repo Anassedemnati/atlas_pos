@@ -2,6 +2,7 @@ import { existsSync, readdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createEventBus } from '../../../src/main/application/events'
+import { sweepFinishedSetup } from '../../../src/main/application/usecases/setup/draft-store'
 import { loadTemplate } from '../../../src/main/domain/config/template'
 import { createCatalogRepo } from '../../../src/main/infrastructure/db/repos/catalog-repo'
 import { createSettingsRepo } from '../../../src/main/infrastructure/db/repos/settings-repo'
@@ -74,6 +75,18 @@ describe('the wizard draft', () => {
     expect(restaurant.counts).toMatchObject({ rooms: 2, tables: 20, profiles: 3 })
     expect(restaurant.categories.find((c) => c.code === 'jus')?.route).toBe('bar')
     expect(restaurant.profiles.map((p) => p.code)).toEqual(['gerant', 'caissier', 'serveur'])
+  })
+})
+
+describe('a finished installation', () => {
+  it('keeps no wizard file: a draft left by a power cut at the very end is swept', () => {
+    const service = testSetupService({ paths: env.paths })
+    service.saveDraft(completeDraft(env))
+    service.previewImport(Buffer.from('x'), 'x.csv')
+    writeFileSync(join(env.paths.config, 'setup-attempt.json'), '{}')
+    writeFileSync(join(env.paths.config, 'installation.json'), '{}')
+    sweepFinishedSetup(env.paths)
+    expect(readdirSync(env.paths.config).sort()).toEqual(['installation.json'])
   })
 })
 
