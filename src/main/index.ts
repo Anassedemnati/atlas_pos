@@ -22,6 +22,7 @@ import { acquireInstanceLock } from './lifecycle/instance-lock'
 import { handleMediaProtocol, registerMediaScheme } from './lifecycle/media-protocol'
 import { acquireRunningLock, type RunningLock } from './lifecycle/running-lock'
 import { createShellPorts, sendToWindows, type AppWindows } from './lifecycle/shell-ports'
+import { runSmokeAndExit, SMOKE_ENV, smokeDataDir, smokeUserDataDir } from './lifecycle/smoke'
 import { createCustomerDisplay, createTillWindow, loadRoute, type WindowConfig } from './lifecycle/windows'
 import { createConsoleLogger, createFileLogger, describeError, type Logger } from './logger'
 import { ensureDataLayout, resolveDataDir, resolveTemplateMediaDir, type DataPaths } from './paths'
@@ -30,6 +31,9 @@ import { RESTART_NORMALLY_EXIT_CODE } from './supervisor-policy'
 const here = dirname(fileURLToPath(import.meta.url))
 const dev = !app.isPackaged
 const exitAfterBoot = process.env['ATLAS_EXIT_AFTER_BOOT'] === '1'
+/** `ATLAS_SMOKE=1`: a self-test on a temporary data directory (setup, one sale, one backup), see lifecycle/smoke.ts. */
+const smoke = process.env[SMOKE_ENV] === '1'
+if (smoke) app.setPath('userData', smokeUserDataDir())
 const isChild = process.argv.includes('--child')
 const safeMode = process.argv.includes('--safe-mode')
 
@@ -42,7 +46,7 @@ const windowConfig: WindowConfig = {
   // The dev server only in development: a packaged app never loads a URL from the environment.
   devServerUrl: dev ? (process.env['ELECTRON_RENDERER_URL'] ?? null) : null,
   dev,
-  show: !exitAfterBoot
+  show: !exitAfterBoot && !smoke
 }
 
 let log: Logger = createConsoleLogger()
@@ -172,7 +176,7 @@ function applyKiosk(services: Services): void {
 
 async function start(): Promise<void> {
   // 1. Paths and the log file (the single-instance lock is already held).
-  const dataDir = resolveDataDir(process.env, process.platform)
+  const dataDir = smoke ? smokeDataDir() : resolveDataDir(process.env, process.platform)
   setDurableLogDir(join(dataDir, 'logs'))
   const paths = ensureDataLayout(dataDir)
   log = createFileLogger(paths.logs, dev && !exitAfterBoot)
@@ -236,7 +240,8 @@ async function start(): Promise<void> {
     appVersion: app.getVersion(),
     rasterize: renderHtmlToBitmap,
     htmlPrinter,
-    setAutostart,
+    // The self-test must not register (or remove) the start of a real installation with the OS.
+    setAutostart: smoke ? () => {} : setAutostart,
     restore: (file) => current.restore(file),
     templateMediaDir: resolveTemplateMediaDir(app.isPackaged, app.getAppPath(), process.resourcesPath)
   })
@@ -283,6 +288,7 @@ async function start(): Promise<void> {
     const now = current.services()
     if (now && keys.includes('autostart.enabled')) optional('autostart', () => setAutostart(now.settings.get('autostart.enabled')))
   })
+  if (smoke) void runSmokeAndExit({ setup, runtime: current, paths, quit: () => app.quit(), abort: () => app.exit(1) })
 }
 
 /** Stops the services, closes the database and releases the running lock (a clean quit). */
@@ -303,7 +309,7 @@ async function shutdown(): Promise<void> {
   log.flush()
 }
 
-if (!dev && !isChild && !exitAfterBoot) {
+if (!dev && !isChild && !exitAfterBoot && !smoke) {
   relaunchUnderSupervisor()
   app.exit(0)
 } else if (!acquireInstanceLock(app, () => (till?.show(), till?.focus()))) {

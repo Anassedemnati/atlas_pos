@@ -5,11 +5,8 @@
   "description": "Atlas POS: offline Electron touchscreen point of sale for Moroccan small businesses",
   "type": "module",
   "main": "./out/main/index.js",
-  "homepage": "https://atlas-pos.local",
-  "author": {
-    "name": "Atlas POS",
-    "email": "contact@atlas-pos.local"
-  },
+  "homepage": "https://atlaspos.ma",
+  "author": "Atlas POS <contact@atlaspos.ma>",
   "engines": {
     "node": ">=22.19"
   },
@@ -24,6 +21,7 @@
     "e2e": "npm run build && playwright test",
     "dist:win": "npm run build && electron-builder --win --publish never",
     "dist:linux": "npm run build && electron-builder --linux --publish never",
+    "dist:mac": "npm run build && electron-builder --mac --publish never",
     "smoke:linux": "bash scripts/smoke-linux.sh"
   },
   "devDependencies": {

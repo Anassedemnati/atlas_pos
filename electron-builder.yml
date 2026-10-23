@@ -1,5 +1,6 @@
 appId: ma.atlaspos.app
 productName: Atlas POS
+copyright: Atlas POS
 directories:
   output: release
   buildResources: build
@@ -19,16 +20,63 @@ asar: true
 asarUnpack:
   - "**/*.node"
 win:
+  icon: resources/icon.ico
   target:
     - target: nsis
       arch: x64
+  # Each platform ships only its own native prebuilds. The patterns repeat the program files: a list that starts with
+  # an exclusion would add every file of the project.
+  files:
+    - out/**/*
+    - package.json
+    - "!node_modules/better-sqlite3/prebuilds/{darwin,linux,linuxmusl}-*.node"
+    - "!node_modules/better-sqlite3/prebuilds/win32-arm64.node"
+    - "!node_modules/@serialport/bindings-cpp/prebuilds/{android,darwin,linux}*/**"
+    - "!node_modules/@serialport/bindings-cpp/prebuilds/win32-{arm64,ia32}/**"
 nsis:
   oneClick: false
   perMachine: true
   allowToChangeInstallationDirectory: true
   artifactName: AtlasPOS-Setup-${version}.exe
+  language: "1036"
+  include: build/installer.nsh
+  deleteAppDataOnUninstall: false
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
 linux:
+  icon: resources/icon.png
   target:
     - AppImage
     - deb
   category: Office
+  maintainer: Atlas POS <contact@atlaspos.ma>
+  files:
+    - out/**/*
+    - package.json
+    - "!node_modules/better-sqlite3/prebuilds/{darwin,win32}-*.node"
+    - "!node_modules/better-sqlite3/prebuilds/linux*-arm64.node"
+    - "!node_modules/better-sqlite3/prebuilds/linuxmusl-x64.node"
+    - "!node_modules/@serialport/bindings-cpp/prebuilds/{android,darwin,win32}*/**"
+    - "!node_modules/@serialport/bindings-cpp/prebuilds/linux-arm*/**"
+  artifactName: AtlasPOS-${version}-linux-${arch}.${ext}
+appImage:
+  artifactName: AtlasPOS-${version}-linux-${arch}.AppImage
+deb:
+  afterInstall: build/linux-postinst.sh
+  artifactName: AtlasPOS-${version}-linux-${arch}.deb
+mac:
+  icon: resources/icon.icns
+  category: public.app-category.business
+  target:
+    - target: dmg
+      arch: x64
+  # Unsigned: the owner's test build (no Apple developer certificate in v1).
+  identity: null
+  files:
+    - out/**/*
+    - package.json
+    - "!node_modules/better-sqlite3/prebuilds/{linux,linuxmusl,win32}*.node"
+    - "!node_modules/better-sqlite3/prebuilds/darwin-arm64.node"
+    - "!node_modules/@serialport/bindings-cpp/prebuilds/{android,linux,win32}*/**"
+dmg:
+  artifactName: AtlasPOS-${version}-mac-x64.dmg
