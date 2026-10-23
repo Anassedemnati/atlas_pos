@@ -7,6 +7,8 @@ export interface OrderLineModifier {
   name: LocalizedName
   /** Added to the unit price; may be negative. */
   priceDeltaCents: number
+  /** Set on a set-menu choice, whose `id` is then the chosen product: the course it was chosen in. */
+  menuCourseId?: string
 }
 
 export interface OrderLine {

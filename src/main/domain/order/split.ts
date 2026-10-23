@@ -11,7 +11,7 @@ import { priceLines, totalsOf, type LinePricing, type Totals } from './totals'
  * differ by a centime). Throws `invalid_split` for an empty group, a line listed twice or one that is not an
  * active line of the ticket: any of them would bill a line twice or not at all.
  */
-export function splitByItems(lines: OrderLine[], groups: string[][], ticketDiscount: Discount | null = null): Totals[] {
+export function splitByItems(lines: OrderLine[], groups: string[][], ticketDiscount: Discount | null): Totals[] {
   const priced = new Map<string, LinePricing>(priceLines(lines, ticketDiscount).map((p) => [p.lineId, p]))
   const taken = new Set<string>()
   return groups.map((ids) => {

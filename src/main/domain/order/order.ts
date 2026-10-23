@@ -25,7 +25,7 @@ export interface Order {
 }
 
 /** The lines that are not void, in the order given. */
-export function activeLines(lines: OrderLine[]): OrderLine[] {
+export function activeLines<L extends OrderLine>(lines: L[]): L[] {
   return lines.filter((line) => line.status === 'active')
 }
 
@@ -33,7 +33,7 @@ export function activeLines(lines: OrderLine[]): OrderLine[] {
  * The active lines the kitchen has not received yet, in the order given. With `uptoCourse`, only those
  * of that course or an earlier one (course 0, no course, always goes with the first batch): "send next course".
  */
-export function unsentLines(lines: OrderLine[], uptoCourse?: number): OrderLine[] {
+export function unsentLines<L extends OrderLine>(lines: L[], uptoCourse?: number): L[] {
   return activeLines(lines).filter((line) => line.sentAt === null && (uptoCourse === undefined || line.course <= uptoCourse))
 }
 
@@ -64,7 +64,8 @@ const isCents = (n: number): boolean => Number.isSafeInteger(n) && n >= 0
  * Where an order stands against its total, payments taken in the order given. A payment that takes `paid`
  * above the total is refused: `overpay_non_cash` when it is not cash (a card is charged what is due, no more),
  * `invalid_payment` when it is cash (the amount applied is capped at what is due; the surplus is only in `tenderedCents`).
- * `invalid_payment` also for an amount that is not whole centimes >= 0, or cash tendered below its amount.
+ * `invalid_payment` also for an amount that is not whole centimes > 0, cash tendered below its amount, or
+ * another method whose tendered differs from its amount.
  */
 export function paymentState(totalCents: number, payments: PaymentInput[]): PaymentState {
   if (!isCents(totalCents)) throw new AppErrorException('invalid_payment', { field: 'total', totalCents })
@@ -72,11 +73,9 @@ export function paymentState(totalCents: number, payments: PaymentInput[]): Paym
   let change = 0
   for (const payment of payments) {
     const { methodCode, amountCents, tenderedCents } = payment
-    if (!isCents(amountCents) || !isCents(tenderedCents)) {
-      throw new AppErrorException('invalid_payment', { methodCode, amountCents, tenderedCents })
-    }
     const isCash = methodCode === CASH_METHOD_CODE
-    if (isCash && tenderedCents < amountCents) {
+    const tenderOk = isCash ? tenderedCents >= amountCents : tenderedCents === amountCents
+    if (!isCents(amountCents) || amountCents === 0 || !isCents(tenderedCents) || !tenderOk) {
       throw new AppErrorException('invalid_payment', { methodCode, amountCents, tenderedCents })
     }
     paid += amountCents

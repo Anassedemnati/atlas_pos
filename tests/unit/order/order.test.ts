@@ -79,4 +79,11 @@ describe('paymentState', () => {
     expect(errorCodeOf(() => paymentState(27100, [cash(1000, Number.NaN)]))).toBe('invalid_payment')
     expect(errorCodeOf(() => paymentState(-1, []))).toBe('invalid_payment')
   })
+
+  it('refuses a zero amount, and a non-cash payment whose tendered differs from its amount', () => {
+    expect(errorCodeOf(() => paymentState(27100, [card(0)]))).toBe('invalid_payment')
+    expect(errorCodeOf(() => paymentState(27100, [cash(0, 500)]))).toBe('invalid_payment')
+    const cardOver = { methodCode: 'card', amountCents: 5000, tenderedCents: 6000 }
+    expect(errorCodeOf(() => paymentState(27100, [cardOver]))).toBe('invalid_payment')
+  })
 })

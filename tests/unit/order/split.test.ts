@@ -44,7 +44,7 @@ describe('splitByItems', () => {
   ]
 
   it('prices each group on its own lines', () => {
-    const [first, second] = splitByItems(lines, [['tajine'], ['couscous', 'the']])
+    const [first, second] = splitByItems(lines, [['tajine'], ['couscous', 'the']], null)
     expect(first).toEqual(computeTotals([lines[0]], null))
     expect(first.total).toBe(14000)
     expect(second.total).toBe(13100)
@@ -74,21 +74,21 @@ describe('splitByItems', () => {
   })
 
   it('may pay only some of the lines, the others staying on the ticket', () => {
-    const [only] = splitByItems(lines, [['the']])
+    const [only] = splitByItems(lines, [['the']], null)
     expect(only.total).toBe(3600)
   })
 
   it('refuses a line in two groups, an unknown or void line, and an empty group', () => {
-    expect(errorCodeOf(() => splitByItems(lines, [['tajine'], ['tajine', 'the']]))).toBe('invalid_split')
-    expect(errorCodeOf(() => splitByItems(lines, [['tajine', 'tajine']]))).toBe('invalid_split')
-    expect(errorCodeOf(() => splitByItems(lines, [['nope']]))).toBe('invalid_split')
-    expect(errorCodeOf(() => splitByItems(lines, [[]]))).toBe('invalid_split')
+    expect(errorCodeOf(() => splitByItems(lines, [['tajine'], ['tajine', 'the']], null))).toBe('invalid_split')
+    expect(errorCodeOf(() => splitByItems(lines, [['tajine', 'tajine']], null))).toBe('invalid_split')
+    expect(errorCodeOf(() => splitByItems(lines, [['nope']], null))).toBe('invalid_split')
+    expect(errorCodeOf(() => splitByItems(lines, [[]], null))).toBe('invalid_split')
     const withVoid = [...lines, makeLine({ id: 'annule', status: 'void' })]
-    expect(errorCodeOf(() => splitByItems(withVoid, [['annule']]))).toBe('invalid_split')
+    expect(errorCodeOf(() => splitByItems(withVoid, [['annule']], null))).toBe('invalid_split')
   })
 
   it('returns nothing for no groups', () => {
-    expect(splitByItems(lines, [])).toEqual([])
+    expect(splitByItems(lines, [], null)).toEqual([])
   })
 
   it('adds up to the full ticket over 200 random orders and random groupings', () => {

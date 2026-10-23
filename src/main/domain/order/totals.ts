@@ -1,6 +1,6 @@
 import { allocateProportional, vatBreakdown, type VatRow } from '@shared/vat'
 import { AppErrorException } from '../../application/errors'
-import { assertDiscount, discountCents, type Discount } from './discount'
+import { discountCents, type Discount } from './discount'
 import { lineGross, lineNet, type OrderLine } from './line'
 import { activeLines } from './order'
 
@@ -35,7 +35,6 @@ export interface LinePricing {
  * left by the line discounts with `allocateProportional`, so the final nets add up to the total exactly.
  */
 export function priceLines(lines: OrderLine[], ticketDiscount: Discount | null): LinePricing[] {
-  if (ticketDiscount) assertDiscount(ticketDiscount)
   const active = activeLines(lines)
   for (const line of active) {
     if (!Number.isSafeInteger(line.vatBp) || line.vatBp < 0) {
