@@ -94,6 +94,14 @@ test.describe.serial('restaurant till', () => {
     // Leave the order open for the closure test.
   })
 
+  test('the pre-bill prints ADDITION and turns the table amber', async () => {
+    const { page } = till
+    await page.getByTestId('prebill').click()
+    await waitForPrint(till.printsDir, 'caisse', 'ADDITION')
+    await page.getByTestId('back-home').click()
+    await expect(page.getByTestId('table-5')).toHaveAttribute('data-state', 'bill')
+  })
+
   test('the Z closure is blocked by an open order; the cancelled ticket prints a credit note', async () => {
     const { page } = till
     await logout(page)

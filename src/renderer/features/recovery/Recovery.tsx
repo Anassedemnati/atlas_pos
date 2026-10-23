@@ -142,6 +142,9 @@ function Corrupt({ file }: { file: string | null }) {
           ))}
         </ul>
       )}
+      <Button size="lg" variant="secondary" block onClick={() => void invoke('app.quitToDesktop', {})} data-testid="recovery-quit">
+        {t('recovery.quit')}
+      </Button>
       <ConfirmDialog
         open={pick !== null}
         tone="danger"
@@ -182,12 +185,21 @@ function SafeOrError({ mode, error }: { mode: string; error: string | null }) {
       <h1 className="h2">{mode === 'safe' ? t('recovery.safeTitle') : t('recovery.errorTitle')}</h1>
       <p className="muted">{mode === 'safe' ? t('recovery.safeMessage') : t('recovery.errorMessage')}</p>
       {error && <p className="error-text">{errorMessage({ code: error, messageKey: `errors.${error}` })}</p>}
-      <Button size="xl" block icon="gear" onClick={() => setTech(true)} data-testid="recovery-tech">
-        {t('recovery.technician')}
-      </Button>
-      <Button size="lg" variant="secondary" block onClick={() => navigate('/login')}>
-        {t('recovery.tryLogin')}
-      </Button>
+      {mode === 'safe' ? (
+        <>
+          <Button size="xl" block icon="gear" onClick={() => setTech(true)} data-testid="recovery-tech">
+            {t('recovery.technician')}
+          </Button>
+          <Button size="lg" variant="secondary" block onClick={() => navigate('/login')}>
+            {t('recovery.tryLogin')}
+          </Button>
+        </>
+      ) : (
+        // No database is open: there is nobody to sign in and no technician mode, so the way out is the desktop.
+        <Button size="xl" block icon="logout" onClick={() => void invoke('app.quitToDesktop', {})} data-testid="recovery-quit">
+          {t('recovery.quit')}
+        </Button>
+      )}
       {tech && <TechMenu onClose={() => setTech(false)} />}
     </section>
   )

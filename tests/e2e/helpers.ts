@@ -4,7 +4,8 @@ import { join, resolve } from 'node:path'
 import { _electron as electron, expect, type ElectronApplication, type Page } from '@playwright/test'
 import { paperText } from '../helpers/escpos-decode'
 
-export const SHOTS = '/private/tmp/claude-501/-Users-mac-Local-Sites-lcmedicalma/c2896af4-818e-4d1d-aac1-83d0c12a4f78/scratchpad/till-shots'
+/** Where the screenshots go: `ATLAS_E2E_SHOTS`, else a temporary folder. */
+export const SHOTS = process.env['ATLAS_E2E_SHOTS'] ?? join(tmpdir(), 'atlas-till-shots')
 
 export const PINS = { Karim: '1234', Sara: '2222', Youssef: '3333' } as const
 export const TECH_CODE = '654321'

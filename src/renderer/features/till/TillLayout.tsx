@@ -73,7 +73,8 @@ export function TillLayout({ title, badge, nav, end, children }: TillLayoutProps
   if (data === null) return <EmptyState title={t('app.loading')} />
 
   const problemJobs: PrintJobDto[] = jobs.data ?? []
-  const printerStatus: PrinterStatus = problemJobs.some((job) => job.status === 'failed') ? 'error' : problemJobs.length > 0 ? 'offline' : 'ok'
+  // A failed or uncertain job is red; the pill is only shown when there is one (space in the top bar).
+  const printerStatus: PrinterStatus = problemJobs.length > 0 ? 'error' : 'ok'
   const legal = setting<{ nomCommercial?: string }>(data, 'business.legal', {})
   const must: DayGateDto | undefined = gate.data
 
