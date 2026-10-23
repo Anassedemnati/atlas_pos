@@ -1,9 +1,9 @@
+import type { OrderStatus, OrderType } from '@shared/dto'
 import { AppErrorException } from '../../application/errors'
 import type { Discount } from './discount'
 import type { OrderLine } from './line'
 
-export type OrderType = 'dine_in' | 'takeaway' | 'delivery' | 'counter'
-export type OrderStatus = 'open' | 'parked' | 'closed' | 'cancelled'
+export type { OrderStatus, OrderType }
 
 /** An order as the use cases work on it: the `orders` row, its ticket discount and its lines. */
 export interface Order {
@@ -21,6 +21,8 @@ export interface Order {
   updatedAt: string
   note: string
   discount: Discount | null
+  /** The largest combined discount (bp) a manager approved for this order; null when none. */
+  discountApprovedBp: number | null
   lines: OrderLine[]
 }
 

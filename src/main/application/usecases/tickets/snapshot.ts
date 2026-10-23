@@ -1,9 +1,8 @@
 import type { BusinessLegalDto, CustomerDto, TicketLineSnapshot, TicketSnapshot } from '@shared/dto'
 import type { Lang, LocalizedName } from '@shared/names'
-import { activeLines } from '../../../domain/order/order'
+import { activeLines, paymentState } from '../../../domain/order/order'
 import { priceLines, totalsOf } from '../../../domain/order/totals'
 import type { StoredOrder } from '../../../infrastructure/db/repos/orders-repo'
-import { paymentTotals } from '../orders/context'
 
 /** Sale tickets: `000001`. Credit notes: `AV-000001`. */
 export const ticketLabel = (kind: 'sale' | 'credit', number: number): string =>
@@ -55,7 +54,7 @@ export function saleSnapshot(input: SaleSnapshotInput): TicketSnapshot {
       netCents: price.net
     }
   })
-  const { paid, change } = paymentTotals(totals.total, order.payments)
+  const { paid, change } = paymentState(totals.total, order.payments)
   const customer = input.customer
   return {
     version: 1,

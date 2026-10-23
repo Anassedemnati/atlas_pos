@@ -1,12 +1,22 @@
 import type { LineModifierDto, OrderDto, ProductDto } from '@shared/dto'
 import { newId } from '@shared/ids'
 import type { Result } from '@shared/result'
-import { requirePermission, type Session } from '../../../domain/users/session'
-import type { StoredLine } from '../../../infrastructure/db/repos/orders-repo'
+import { requirePermission, type OverrideToken, type Session } from '../../../domain/users/session'
+import type { StoredLine, StoredOrder } from '../../../infrastructure/db/repos/orders-repo'
 import { AppErrorException } from '../../errors'
 import { parseInput } from '../catalog/input'
 import { attemptSync, invalidInput } from '../users/outcome'
-import { activeLine, assertNotBelowPaid, loadOrder, logOrder, moveStock, reread, type Sales } from './context'
+import {
+  activeLine,
+  assertNotBelowPaid,
+  enforceDiscountLimit,
+  loadOrder,
+  logOrder,
+  moveStock,
+  reread,
+  type DiscountApproval,
+  type Sales
+} from './context'
 import { AddLineSchema, reasonOf, type AddLineInput } from './inputs'
 
 export interface LineUseCases {
@@ -18,13 +28,18 @@ export interface LineUseCases {
    * group outside its min / max; `invalid_menu_choice` when the choices do not fill the set menu's courses.
    */
   addLine(session: Session, orderId: string, input: AddLineInput): Result<OrderDto>
-  /** A line the kitchen has not received yet (`line_sent` otherwise: void it, or add a line). Moves the stock. */
-  setLineQty(session: Session, orderId: string, lineId: string, qtyMilli: number): Result<OrderDto>
+  /**
+   * A line the kitchen has not received yet (`line_sent` otherwise: void it, or add a line). Moves the
+   * stock. A lower quantity shrinks what the order's discounts are measured on: `discount_over_limit`
+   * unless `overrideToken` (see `setLineDiscount`).
+   */
+  setLineQty(session: Session, orderId: string, lineId: string, qtyMilli: number, overrideToken?: OverrideToken): Result<OrderDto>
   /**
    * Removes a line (it stays, as void, for the Z report). Before sending it is free; after, it needs
-   * `order.void_sent` and a reason, and queues a kitchen "ANNULÉ" ticket. The stock comes back.
+   * `order.void_sent` and a reason, and queues a kitchen "ANNULÉ" ticket. The stock comes back. The
+   * order's discount is checked again as for `setLineQty`.
    */
-  voidLine(session: Session, orderId: string, lineId: string, reason: string): Result<OrderDto>
+  voidLine(session: Session, orderId: string, lineId: string, reason: string, overrideToken?: OverrideToken): Result<OrderDto>
 }
 
 /** Throws `invalid_qty` unless `qtyMilli` is a whole number > 0, in whole units unless sold by weight. */
@@ -74,6 +89,7 @@ export function createLineUseCases(ctx: Sales): LineUseCases {
         const item = course.items.find((i) => i.productId === productId)
         const chosen = item && catalog.getProduct(productId)
         if (!item || !chosen) throw new AppErrorException('invalid_menu_choice', { courseId: course.id, productId })
+        if (!chosen.active) throw new AppErrorException('product_inactive', { productId })
         return { id: productId, name: chosen.name, priceDeltaCents: item.supplementCents, menuCourseId: course.id }
       })
     })
@@ -118,27 +134,37 @@ export function createLineUseCases(ctx: Sales): LineUseCases {
     })
   }
 
-  function setQty(session: Session, orderId: string, lineId: string, qtyMilli: number): OrderDto {
+  /** Checks the order once one of its lines becomes `changed`; returns the approval and its audit data. */
+  function recheck(session: Session, order: StoredOrder, changed: StoredLine, token: OverrideToken | undefined) {
+    const lines = order.lines.map((l) => (l.id === changed.id ? changed : l))
+    assertNotBelowPaid(lines, order.discount, order.payments)
+    const approval: DiscountApproval = { token }
+    order.discountApprovedBp = enforceDiscountLimit(
+      ctx,
+      session,
+      { lines, discount: order.discount, approvedBp: order.discountApprovedBp },
+      approval
+    )
+    return approval.usedBy ? { overriddenBy: approval.usedBy } : {}
+  }
+
+  function setQty(session: Session, orderId: string, lineId: string, qtyMilli: number, token?: OverrideToken): OrderDto {
     return uow.run((tx) => {
       const order = loadOrder(ctx, orderId)
       const line = activeLine(order, lineId)
       if (line.sentAt !== null) throw new AppErrorException('line_sent', { lineId })
       assertQty(qtyMilli, catalog.getProduct(line.productId)?.soldByWeight ?? false)
       const updated = { ...line, qtyMilli }
-      assertNotBelowPaid(
-        order.lines.map((l) => (l.id === lineId ? updated : l)),
-        order.discount,
-        order.payments
-      )
+      const audit = recheck(session, order, updated, token)
       ctx.orders.updateLine(tx, updated)
       // Only the difference moves: a lower quantity puts stock back, a higher one takes more.
       if (qtyMilli !== line.qtyMilli) moveStock(tx, ctx, { ...line, qtyMilli: line.qtyMilli - qtyMilli }, 1)
-      logOrder(tx, ctx, session, order, 'order.line_qty', { lineId, from: line.qtyMilli, to: qtyMilli })
+      logOrder(tx, ctx, session, order, 'order.line_qty', { lineId, from: line.qtyMilli, to: qtyMilli, ...audit })
       return reread(ctx, order.id)
     })
   }
 
-  function voidIt(session: Session, orderId: string, lineId: string, rawReason: string): OrderDto {
+  function voidIt(session: Session, orderId: string, lineId: string, rawReason: string, token?: OverrideToken): OrderDto {
     return uow.run((tx) => {
       const order = loadOrder(ctx, orderId)
       const line = activeLine(order, lineId)
@@ -146,22 +172,18 @@ export function createLineUseCases(ctx: Sales): LineUseCases {
       if (sent) requirePermission(session, 'order.void_sent')
       const reason = sent ? reasonOf(rawReason) : typeof rawReason === 'string' ? rawReason.trim() : ''
       const voided: StoredLine = { ...line, status: 'void', voidReason: reason }
-      assertNotBelowPaid(
-        order.lines.map((l) => (l.id === lineId ? voided : l)),
-        order.discount,
-        order.payments
-      )
+      const audit = recheck(session, order, voided, token)
       ctx.orders.updateLine(tx, voided)
       moveStock(tx, ctx, line, 1)
       if (sent) ctx.spooler.enqueue(tx, { target: { role: 'kitchen' }, kind: 'kitchen-cancel', payload: { orderId: order.id, lineIds: [lineId] } })
-      logOrder(tx, ctx, session, order, 'order.line_void', { lineId, reason, sent, qtyMilli: line.qtyMilli })
+      logOrder(tx, ctx, session, order, 'order.line_void', { lineId, reason, sent, qtyMilli: line.qtyMilli, ...audit })
       return reread(ctx, order.id)
     })
   }
 
   return {
     addLine: (session, orderId, input) => attemptSync(() => add(session, orderId, input)),
-    setLineQty: (session, orderId, lineId, qtyMilli) => attemptSync(() => setQty(session, orderId, lineId, qtyMilli)),
-    voidLine: (session, orderId, lineId, reason) => attemptSync(() => voidIt(session, orderId, lineId, reason))
+    setLineQty: (session, orderId, lineId, qtyMilli, token) => attemptSync(() => setQty(session, orderId, lineId, qtyMilli, token)),
+    voidLine: (session, orderId, lineId, reason, token) => attemptSync(() => voidIt(session, orderId, lineId, reason, token))
   }
 }

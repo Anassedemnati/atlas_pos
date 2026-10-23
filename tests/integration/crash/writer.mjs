@@ -94,7 +94,7 @@ const deps = {
   clock,
   settings: createSettingsRepo(db),
   spooler,
-  overrides: { checkDiscount: refuse, consumeOverride: refuse }
+  overrides: { consumeOverride: refuse }
 }
 const orders = createOrdersService(deps)
 const tickets = createTicketsService(deps)

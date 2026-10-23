@@ -1,22 +1,33 @@
 import type { DiscountDto, OrderDto } from '@shared/dto'
 import type { Result } from '@shared/result'
 import type { Discount } from '../../../domain/order/discount'
-import { lineGross } from '../../../domain/order/line'
-import { computeTotals } from '../../../domain/order/totals'
 import { hasPermission, type OverrideToken, type Session } from '../../../domain/users/session'
+import type { StoredLine, StoredOrder } from '../../../infrastructure/db/repos/orders-repo'
+import type { Tx } from '../../../infrastructure/db/uow'
 import { AppErrorException } from '../../errors'
 import { parseInput } from '../catalog/input'
 import { attemptSync } from '../users/outcome'
-import { activeLine, assertNotBelowPaid, loadOrder, logOrder, reread, type Sales } from './context'
+import {
+  activeLine,
+  assertNotBelowPaid,
+  enforceDiscountLimit,
+  loadOrder,
+  logOrder,
+  reread,
+  type DiscountApproval,
+  type Sales
+} from './context'
 import { DiscountSchema, reasonOf } from './inputs'
 
 export interface DiscountUseCases {
   /**
-   * Sets (or with `null` removes) the discount of a line. Setting one needs `order.discount`; above the
-   * profile's `maxDiscountBp` it also needs `overrideToken`, a manager's approval from `authorizeOverride`
-   * for `order.discount.override`, which is spent and logged as `overriddenBy`. A fixed amount is measured
-   * as the percentage it takes off the line, rounded up. `below_paid` if the bill would drop under what
-   * was already paid (the token is then not spent).
+   * Sets (or with `null` removes) the discount of a line. Setting one needs `order.discount`. The order's
+   * combined discount (line and ticket discounts over the gross of the lines that are not free, fixed
+   * amounts at their full value) must stay within `max(the profile's maxDiscountBp, what a manager
+   * approved for the order)`, else `discount_over_limit` (`params.effectiveBp`, `params.limitBp`), unless
+   * `overrideToken` (a manager's `order.discount.override` from `authorizeOverride`) is given: it is then
+   * spent, logged as `overriddenBy`, and the approval stored on the order. `below_paid` if the bill would
+   * drop under what was already paid (the token is then not spent).
    */
   setLineDiscount(
     session: Session,
@@ -25,11 +36,13 @@ export interface DiscountUseCases {
     discount: DiscountDto | null,
     overrideToken?: OverrideToken
   ): Result<OrderDto>
-  /** The same for the whole ticket, measured against the lines after their own discounts. */
+  /** The same for the whole ticket. */
   setTicketDiscount(session: Session, orderId: string, discount: DiscountDto | null, overrideToken?: OverrideToken): Result<OrderDto>
   /**
    * Offers a line (`free` true, with a reason) or charges it again. Offering needs `order.free_item`, or
-   * an override token for it (spent, logged as `overriddenBy`).
+   * `overrideToken` for it (spent, logged as `overriddenBy`). Offering a line shrinks what the other
+   * discounts are measured on, so the combined discount is checked again (`discount_over_limit`, or
+   * `discountOverrideToken`).
    */
   setFree(
     session: Session,
@@ -37,75 +50,65 @@ export interface DiscountUseCases {
     lineId: string,
     free: boolean,
     reason: string,
-    overrideToken?: OverrideToken
+    overrideToken?: OverrideToken,
+    discountOverrideToken?: OverrideToken
   ): Result<OrderDto>
-}
-
-/** The share of `baseCents` a discount takes, in basis points; an amount is rounded up, so it never slips under a limit. */
-function discountBp(discount: Discount, baseCents: number): number {
-  if (discount.kind === 'pct') return discount.bp
-  if (discount.cents === 0 || baseCents === 0) return 0
-  return discount.cents >= baseCents ? 10000 : Math.ceil((discount.cents * 10000) / baseCents)
-}
-
-const noOverride = (): { overriddenBy?: string } => ({})
-
-const fromRefusal = (r: Result<unknown>): never => {
-  if (r.ok) throw new Error('fromRefusal called with a success')
-  throw new AppErrorException(r.error.code, r.error.params)
 }
 
 export function createDiscountUseCases(ctx: Sales): DiscountUseCases {
   const { uow, overrides } = ctx
 
-  /**
-   * Checks what can be checked without spending the override token, and returns the step that spends it,
-   * to run once every other check has passed.
-   */
-  function authorizeDiscount(session: Session, bp: number, token: OverrideToken | undefined): () => { overriddenBy?: string } {
-    if (!hasPermission(session, 'order.discount')) throw new AppErrorException('forbidden', { permission: 'order.discount' })
-    if (bp > session.maxDiscountBp && token === undefined) {
-      throw new AppErrorException('forbidden', { permission: 'order.discount.override', maxDiscountBp: session.maxDiscountBp })
-    }
-    return () => {
-      const checked = overrides.checkDiscount(session, bp, token)
-      return checked.ok ? checked.value : fromRefusal(checked)
-    }
+  const parseDiscount = (raw: DiscountDto | null): Discount | null => (raw === null ? null : parseInput(DiscountSchema, raw))
+
+  /** Checks and writes the order once `lines` / `discount` are what they will be; returns the audit data. */
+  function apply(
+    tx: Tx,
+    session: Session,
+    order: StoredOrder,
+    after: { lines: StoredLine[]; discount: Discount | null; changed?: StoredLine },
+    token: OverrideToken | undefined,
+    grant: boolean
+  ): { overriddenBy?: string } {
+    assertNotBelowPaid(after.lines, after.discount, order.payments)
+    const approval: DiscountApproval = { token }
+    const approvedBp = enforceDiscountLimit(
+      ctx,
+      session,
+      { lines: after.lines, discount: after.discount, approvedBp: order.discountApprovedBp },
+      approval,
+      grant
+    )
+    if (after.changed) ctx.orders.updateLine(tx, after.changed)
+    order.discount = after.discount
+    order.discountApprovedBp = approvedBp
+    return approval.usedBy ? { overriddenBy: approval.usedBy } : {}
   }
 
-  const parseDiscount = (raw: DiscountDto | null): Discount | null => (raw === null ? null : parseInput(DiscountSchema, raw))
+  const replaced = (order: StoredOrder, line: StoredLine): StoredLine[] => order.lines.map((l) => (l.id === line.id ? line : l))
+
+  const requireDiscountPermission = (session: Session): void => {
+    if (!hasPermission(session, 'order.discount')) throw new AppErrorException('forbidden', { permission: 'order.discount' })
+  }
 
   function setLine(session: Session, orderId: string, lineId: string, raw: DiscountDto | null, token?: OverrideToken): OrderDto {
     const discount = parseDiscount(raw)
+    if (discount) requireDiscountPermission(session)
     return uow.run((tx) => {
       const order = loadOrder(ctx, orderId)
-      const line = activeLine(order, lineId)
-      const spend = discount ? authorizeDiscount(session, discountBp(discount, lineGross(line)), token) : noOverride
-      const updated = { ...line, discount }
-      assertNotBelowPaid(
-        order.lines.map((l) => (l.id === lineId ? updated : l)),
-        order.discount,
-        order.payments
-      )
-      const { overriddenBy } = spend()
-      ctx.orders.updateLine(tx, updated)
-      logOrder(tx, ctx, session, order, 'order.discount', { lineId, discount, ...(overriddenBy ? { overriddenBy } : {}) })
+      const changed = { ...activeLine(order, lineId), discount }
+      const audit = apply(tx, session, order, { lines: replaced(order, changed), discount: order.discount, changed }, token, discount !== null)
+      logOrder(tx, ctx, session, order, 'order.discount', { lineId, discount, ...audit })
       return reread(ctx, order.id)
     })
   }
 
   function setTicket(session: Session, orderId: string, raw: DiscountDto | null, token?: OverrideToken): OrderDto {
     const discount = parseDiscount(raw)
+    if (discount) requireDiscountPermission(session)
     return uow.run((tx) => {
       const order = loadOrder(ctx, orderId)
-      const base = computeTotals(order.lines, null).total
-      const spend = discount ? authorizeDiscount(session, discountBp(discount, base), token) : noOverride
-      assertNotBelowPaid(order.lines, discount, order.payments)
-      const { overriddenBy } = spend()
-      logOrder(tx, ctx, session, { ...order, discount }, 'order.discount', {
-        discount,
-        ...(overriddenBy ? { overriddenBy } : {})
-      })
+      const audit = apply(tx, session, order, { lines: order.lines, discount }, token, discount !== null)
+      logOrder(tx, ctx, session, order, 'order.discount', { discount, ...audit })
       return reread(ctx, order.id)
     })
   }
@@ -116,27 +119,29 @@ export function createDiscountUseCases(ctx: Sales): DiscountUseCases {
     lineId: string,
     free: boolean,
     rawReason: string,
-    token?: OverrideToken
+    token?: OverrideToken,
+    discountToken?: OverrideToken
   ): OrderDto {
     const reason = free ? reasonOf(rawReason) : ''
     return uow.run((tx) => {
       const order = loadOrder(ctx, orderId)
-      const line = activeLine(order, lineId)
       const held = !free || hasPermission(session, 'order.free_item')
       if (!held && token === undefined) throw new AppErrorException('forbidden', { permission: 'order.free_item' })
-      const updated = { ...line, free, freeReason: reason }
-      assertNotBelowPaid(
-        order.lines.map((l) => (l.id === lineId ? updated : l)),
-        order.discount,
-        order.payments
-      )
-      let overriddenBy: string | undefined
+      const changed = { ...activeLine(order, lineId), free, freeReason: reason }
+      const audit = apply(tx, session, order, { lines: replaced(order, changed), discount: order.discount, changed }, discountToken, false)
+      let freeBy: string | undefined
       if (!held && token !== undefined) {
         const used = overrides.consumeOverride(token, 'order.free_item')
-        overriddenBy = used.ok ? used.value.byUserId : fromRefusal(used)
+        if (!used.ok) throw new AppErrorException(used.error.code, used.error.params)
+        freeBy = used.value.byUserId
       }
-      ctx.orders.updateLine(tx, updated)
-      logOrder(tx, ctx, session, order, 'order.free', { lineId, free, reason, ...(overriddenBy ? { overriddenBy } : {}) })
+      logOrder(tx, ctx, session, order, 'order.free', {
+        lineId,
+        free,
+        reason,
+        ...(freeBy ? { overriddenBy: freeBy } : {}),
+        ...(audit.overriddenBy ? { discountOverriddenBy: audit.overriddenBy } : {})
+      })
       return reread(ctx, order.id)
     })
   }
@@ -145,7 +150,7 @@ export function createDiscountUseCases(ctx: Sales): DiscountUseCases {
     setLineDiscount: (session, orderId, lineId, discount, token) =>
       attemptSync(() => setLine(session, orderId, lineId, discount, token)),
     setTicketDiscount: (session, orderId, discount, token) => attemptSync(() => setTicket(session, orderId, discount, token)),
-    setFree: (session, orderId, lineId, free, reason, token) =>
-      attemptSync(() => setFree(session, orderId, lineId, free, reason, token))
+    setFree: (session, orderId, lineId, free, reason, token, discountToken) =>
+      attemptSync(() => setFree(session, orderId, lineId, free, reason, token, discountToken))
   }
 }

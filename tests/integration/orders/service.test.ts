@@ -155,6 +155,15 @@ describe('orders: a full service', () => {
     expect(code(h.orders.addLine(h.cashier, order.id, { productId: h.fx.products.menu, qtyMilli: 1000, modifierIds: [], note: '' }))).toBe(
       'invalid_menu_choice'
     )
+    h.t.db.prepare('UPDATE products SET active = 0 WHERE id = ?').run(h.fx.products.couscous)
+    const inactiveChoice = h.orders.addLine(h.cashier, order.id, {
+      productId: h.fx.products.menu,
+      qtyMilli: 1000,
+      modifierIds: [],
+      note: '',
+      menuChoices: [{ courseId: h.fx.menu.courseId, productIds: [h.fx.products.couscous] }]
+    })
+    expect(code(inactiveChoice)).toBe('product_inactive')
   })
 
   it('stock: a sale decrements a tracked product, a void and a cancellation restore it', () => {

@@ -1,20 +1,29 @@
 import type { TicketDto } from '@shared/dto'
 import { newId } from '@shared/ids'
 import type { Result } from '@shared/result'
-import { activeLines, CASH_METHOD_CODE, unsentLines } from '../../../domain/order/order'
+import { activeLines, CASH_METHOD_CODE, paymentState, unsentLines } from '../../../domain/order/order'
 import { splitByItems } from '../../../domain/order/split'
 import { computeTotals, priceLines } from '../../../domain/order/totals'
-import type { Session } from '../../../domain/users/session'
+import type { Discount } from '../../../domain/order/discount'
+import type { OverrideToken, Session } from '../../../domain/users/session'
 import { appendEvent } from '../../../infrastructure/db/event-log'
-import type { StoredOrder } from '../../../infrastructure/db/repos/orders-repo'
+import type { StoredLine, StoredOrder } from '../../../infrastructure/db/repos/orders-repo'
 import { nextSequence } from '../../../infrastructure/db/sequences'
 import type { Tx } from '../../../infrastructure/db/uow'
 import { AppErrorException } from '../../errors'
 import { parseInput } from '../catalog/input'
-import { loadOrder, logOrder, paymentTotals, type Sales } from '../orders/context'
+import {
+  discountMeasure,
+  effectiveDiscountBp,
+  enforceDiscountLimit,
+  loadOrder,
+  logOrder,
+  type DiscountApproval,
+  type Sales
+} from '../orders/context'
 import { SplitGroupsSchema, type AddPaymentInput } from '../orders/inputs'
 import { sendLines } from '../orders/kitchen'
-import { applyPayment } from '../orders/payments'
+import { applyPayment, logPayment } from '../orders/payments'
 import { attemptSync } from '../users/outcome'
 import { saleSnapshot, ticketLabel, type SnapshotHeader } from './snapshot'
 
@@ -30,17 +39,20 @@ export interface CloseUseCases {
    * Closes a paid order (`not_paid` with `params.dueCents` otherwise, `order_empty` with no active line).
    * In one transaction: whatever the kitchen has not received is sent, the next ticket number is taken
    * (gap-free), the immutable ticket is written with its full snapshot, the order is closed, and the
-   * receipt (and, for cash, a drawer pulse) is queued. Announces `ticket.closed`.
+   * receipt (and, for cash, a drawer pulse) is queued. Announces `ticket.closed`. The order's combined
+   * discount is checked against the closing session (`discount_over_limit` unless `overrideToken`).
    */
-  closeOrder(session: Session, orderId: string): Result<TicketDto>
+  closeOrder(session: Session, orderId: string, overrideToken?: OverrideToken): Result<TicketDto>
   /**
    * Bill by items: each group becomes its own order, takes its payments and is closed, all in one
    * transaction (a group not paid in full closes none). The ticket discount is shared once over the
    * whole bill. Lines in no group stay on the order with what is left of the ticket discount (as an
    * amount); an order left without an active line is cancelled. Refused with `has_payments` once the
-   * order has taken a payment.
+   * order has taken a payment. The order's discount is checked against the session first
+   * (`discount_over_limit` unless `overrideToken`); the parts and what is left carry their proportional
+   * share of it (within a centime per line) and the order's approval.
    */
-  splitAndClose(session: Session, orderId: string, groups: SplitGroup[]): Result<TicketDto[]>
+  splitAndClose(session: Session, orderId: string, groups: SplitGroup[], overrideToken?: OverrideToken): Result<TicketDto[]>
 }
 
 /** The header every ticket of this transaction shares: business identity, receipt texts, issuer, day. */
@@ -71,11 +83,17 @@ export function queueReceipt(tx: Tx, ctx: Sales, ticketId: string, methodCodes: 
 }
 
 /** Closes `order` inside the caller's transaction. */
-export function closeInTx(tx: Tx, ctx: Sales, session: Session, order: StoredOrder): TicketDto {
+export function closeInTx(tx: Tx, ctx: Sales, session: Session, order: StoredOrder, approval: DiscountApproval = {}): TicketDto {
   if (order.status !== 'open') throw new AppErrorException('order_not_open', { status: order.status })
   if (activeLines(order.lines).length === 0) throw new AppErrorException('order_empty')
-  const { due } = paymentTotals(computeTotals(order.lines, order.discount).total, order.payments)
+  const { due } = paymentState(computeTotals(order.lines, order.discount).total, order.payments)
   if (due > 0) throw new AppErrorException('not_paid', { dueCents: due })
+  const approvedBp = enforceDiscountLimit(
+    ctx,
+    session,
+    { lines: order.lines, discount: order.discount, approvedBp: order.discountApprovedBp },
+    approval
+  )
   sendLines(tx, ctx, session, order, unsentLines(order.lines))
 
   const header = ticketHeader(tx, ctx, session, 'sale', order.dayId)
@@ -107,10 +125,11 @@ export function closeInTx(tx: Tx, ctx: Sales, session: Session, order: StoredOrd
     snapshot
   }
   ctx.tickets.insert(tx, ticket)
-  logOrder(tx, ctx, session, { ...order, status: 'closed' }, 'ticket.closed', {
+  logOrder(tx, ctx, session, { ...order, status: 'closed', discountApprovedBp: approvedBp }, 'ticket.closed', {
     ticketId: ticket.id,
     label: ticket.label,
-    totalCents: ticket.totalCents
+    totalCents: ticket.totalCents,
+    ...(approval.usedBy ? { overriddenBy: approval.usedBy } : {})
   })
   queueReceipt(
     tx,
@@ -125,11 +144,18 @@ export function closeInTx(tx: Tx, ctx: Sales, session: Session, order: StoredOrd
 export function createCloseUseCases(ctx: Sales): CloseUseCases {
   const { uow } = ctx
 
-  function split(session: Session, orderId: string, groups: SplitGroup[]): TicketDto[] {
-    parseInput(SplitGroupsSchema, groups)
+  function split(session: Session, orderId: string, rawGroups: SplitGroup[], token?: OverrideToken): TicketDto[] {
+    const groups = parseInput(SplitGroupsSchema, rawGroups)
     return uow.run((tx) => {
       const order = loadOrder(ctx, orderId)
       if (order.payments.length > 0) throw new AppErrorException('has_payments')
+      const approval: DiscountApproval = { token }
+      const approvedBp = enforceDiscountLimit(
+        ctx,
+        session,
+        { lines: order.lines, discount: order.discount, approvedBp: order.discountApprovedBp },
+        approval
+      )
       const parts = splitByItems(
         order.lines,
         groups.map((g) => g.lineIds),
@@ -137,12 +163,28 @@ export function createCloseUseCases(ctx: Sales): CloseUseCases {
       )
       const shares = new Map(priceLines(order.lines, order.discount).map((p) => [p.lineId, p.ticketDiscount]))
       const asAmount = (cents: number) => (order.discount ? { kind: 'amount' as const, cents, reason: order.discount.reason } : null)
+      /** A part keeps the order's approval, raised to its own share (which differs by rounding only). */
+      const approvalOf = (lines: StoredLine[], discount: Discount | null): number | null => {
+        const own = effectiveDiscountBp(discountMeasure(lines, discount))
+        return approvedBp === null && own === 0 ? null : Math.max(approvedBp ?? 0, own)
+      }
       const now = tx.clock.now().toISOString()
 
       const tickets = groups.map((group, i) => {
         const part = parts[i]!
         const childId = newId()
-        ctx.orders.insert(tx, { ...order, id: childId, covers: 0, note: '', openedAt: now, updatedAt: now, discount: asAmount(part.ticketDiscount) })
+        const discount = asAmount(part.ticketDiscount)
+        const lines = order.lines.filter((l) => group.lineIds.includes(l.id))
+        ctx.orders.insert(tx, {
+          ...order,
+          id: childId,
+          covers: 0,
+          note: '',
+          openedAt: now,
+          updatedAt: now,
+          discount,
+          discountApprovedBp: approvalOf(lines, discount)
+        })
         group.lineIds.forEach((lineId, k) => ctx.orders.moveLine(tx, lineId, childId, k + 1))
         appendEvent(
           tx.db,
@@ -151,30 +193,41 @@ export function createCloseUseCases(ctx: Sales): CloseUseCases {
         )
         let child = loadOrder(ctx, childId)
         if (computeTotals(child.lines, child.discount).total !== part.total) throw new Error('split part does not add up')
-        for (const payment of group.payments) {
-          applyPayment(tx, ctx, session, child, payment)
+        for (const input of group.payments) {
+          const payment = applyPayment(tx, ctx, session, child, input as AddPaymentInput)
+          logPayment(tx, session, childId, payment)
           child = loadOrder(ctx, childId)
         }
         return closeInTx(tx, ctx, session, child)
       })
 
       const moved = new Set(groups.flatMap((g) => g.lineIds))
-      const left = activeLines(order.lines.filter((l) => !moved.has(l.id)))
-      const leftShare = left.reduce((sum, l) => sum + (shares.get(l.id) ?? 0), 0)
+      const left = order.lines.filter((l) => !moved.has(l.id))
+      const leftDiscount = asAmount(activeLines(left).reduce((sum, l) => sum + (shares.get(l.id) ?? 0), 0))
       logOrder(
         tx,
         ctx,
         session,
-        { ...order, discount: asAmount(leftShare), status: left.length === 0 ? 'cancelled' : 'open' },
+        {
+          ...order,
+          discount: leftDiscount,
+          discountApprovedBp: approvalOf(left, leftDiscount),
+          status: activeLines(left).length === 0 ? 'cancelled' : 'open'
+        },
         'order.split',
-        { ticketIds: tickets.map((t) => t.id), orderIds: tickets.map((t) => t.orderId) }
+        {
+          ticketIds: tickets.map((t) => t.id),
+          orderIds: tickets.map((t) => t.orderId),
+          ...(approval.usedBy ? { overriddenBy: approval.usedBy } : {})
+        }
       )
       return tickets
     })
   }
 
   return {
-    closeOrder: (session, orderId) => attemptSync(() => uow.run((tx) => closeInTx(tx, ctx, session, loadOrder(ctx, orderId)))),
-    splitAndClose: (session, orderId, groups) => attemptSync(() => split(session, orderId, groups))
+    closeOrder: (session, orderId, token) =>
+      attemptSync(() => uow.run((tx) => closeInTx(tx, ctx, session, loadOrder(ctx, orderId), { token }))),
+    splitAndClose: (session, orderId, groups, token) => attemptSync(() => split(session, orderId, groups, token))
   }
 }

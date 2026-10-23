@@ -1,7 +1,8 @@
+import type { DiscountDto } from '@shared/dto'
 import { AppErrorException } from '../../application/errors'
 
 /** A discount on a line or on the whole ticket: a percentage in basis points (1000 = 10 %) or a fixed amount in centimes. */
-export type Discount = { kind: 'pct'; bp: number; reason: string } | { kind: 'amount'; cents: number; reason: string }
+export type Discount = DiscountDto
 
 /** Throws `invalid_discount` unless the percentage is a whole number of basis points in 0..10000 or the amount a whole number of centimes >= 0. */
 export function assertDiscount(discount: Discount): void {

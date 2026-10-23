@@ -77,6 +77,7 @@ export function createOpenUseCases(ctx: Sales): OpenUseCases {
         updatedAt: now.toISOString(),
         note: '',
         discount: null,
+        discountApprovedBp: null,
         lines: [],
         payments: []
       }

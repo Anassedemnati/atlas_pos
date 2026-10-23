@@ -1,8 +1,9 @@
 import type { LineModifierDto, OrderDto, PaymentDto } from '@shared/dto'
 import type { Discount } from '../../../domain/order/discount'
-import { CASH_METHOD_CODE, type OrderStatus } from '../../../domain/order/order'
+import { lineGross, lineNet, type OrderLine } from '../../../domain/order/line'
+import { activeLines, paymentState, type OrderStatus } from '../../../domain/order/order'
 import { computeTotals } from '../../../domain/order/totals'
-import type { Session } from '../../../domain/users/session'
+import { hasPermission, type OverrideToken, type Session } from '../../../domain/users/session'
 import type { Database } from '../../../infrastructure/db/connection'
 import { appendEvent } from '../../../infrastructure/db/event-log'
 import { createCatalogRepo, type CatalogRepo } from '../../../infrastructure/db/repos/catalog-repo'
@@ -30,7 +31,7 @@ export interface SalesDeps {
   settings: SettingsRepo
   spooler: PrintSpooler
   /** The users service of the process: it holds the override tokens a manager issued. */
-  overrides: Pick<OverrideUseCases, 'checkDiscount' | 'consumeOverride'>
+  overrides: Pick<OverrideUseCases, 'consumeOverride'>
   /** Asked for a full backup after each Z (when `backup.onClose` is on). */
   backup?: FullBackupTrigger
 }
@@ -54,19 +55,10 @@ export function salesContext(deps: SalesDeps): Sales {
   }
 }
 
-/** Paid, still due and change, read from stored payments (which the use cases keep within the total). */
-export function paymentTotals(totalCents: number, payments: PaymentDto[]): { paid: number; due: number; change: number } {
-  const paid = payments.reduce((sum, p) => sum + p.amountCents, 0)
-  const change = payments
-    .filter((p) => p.methodCode === CASH_METHOD_CODE)
-    .reduce((sum, p) => sum + p.tenderedCents - p.amountCents, 0)
-  return { paid, due: Math.max(0, totalCents - paid), change }
-}
-
 export function toOrderDto(order: StoredOrder): OrderDto {
   const totals = computeTotals(order.lines, order.discount)
   const nets = new Map(totals.perLine.map((p) => [p.lineId, p.net]))
-  const { paid, due, change } = paymentTotals(totals.total, order.payments)
+  const { paid, due, change } = paymentState(totals.total, order.payments)
   return {
     id: order.id,
     dayId: order.dayId,
@@ -82,6 +74,7 @@ export function toOrderDto(order: StoredOrder): OrderDto {
     updatedAt: order.updatedAt,
     note: order.note,
     discount: order.discount,
+    discountApprovedBp: order.discountApprovedBp,
     lines: order.lines.map((line) => ({ ...line, netCents: nets.get(line.id) ?? 0 })),
     payments: order.payments,
     totals: {
@@ -123,6 +116,76 @@ export function assertNotBelowPaid(lines: StoredLine[], discount: Discount | nul
   const total = computeTotals(lines, discount).total
   const paid = payments.reduce((sum, p) => sum + p.amountCents, 0)
   if (total < paid) throw new AppErrorException('below_paid', { totalCents: total, paidCents: paid })
+}
+
+/**
+ * A manager approval offered for one action (`order.discount.override`). It is spent at most once,
+ * however many orders the action checks (`moveLines`, a split), and only if a check needs it; `usedBy`
+ * then names the manager, for the action's audit row.
+ */
+export interface DiscountApproval {
+  token?: OverrideToken
+  usedBy?: string
+}
+
+/**
+ * The combined discount of an order, measured on what was granted rather than on what the amounts
+ * happen to take off now: `granted` is in centimes x 10000 (a percentage counts its exact share of its
+ * base, a fixed amount its full nominal value, even above its base), `base` the gross of the active lines
+ * that are not free. Free items are governed by `order.free_item`, not by the discount limit.
+ */
+export function discountMeasure(lines: OrderLine[], discount: Discount | null): { granted: number; base: number } {
+  let granted = 0
+  let base = 0
+  let nets = 0
+  for (const line of activeLines(lines).filter((l) => !l.free)) {
+    const gross = lineGross(line)
+    base += gross
+    nets += lineNet(line)
+    if (line.discount) granted += line.discount.kind === 'pct' ? gross * line.discount.bp : line.discount.cents * 10000
+  }
+  if (discount) granted += discount.kind === 'pct' ? nets * discount.bp : discount.cents * 10000
+  return { granted, base }
+}
+
+/** The combined discount in basis points, rounded up and at most 10000; a discount on a zero base is 10000. */
+export function effectiveDiscountBp(m: { granted: number; base: number }): number {
+  if (m.granted === 0) return 0
+  if (m.base === 0) return 10000
+  return Math.min(10000, Math.ceil(m.granted / m.base))
+}
+
+/**
+ * Checks the order's combined discount (as it will be after the change) against what the acting session
+ * may allow: `max(session.maxDiscountBp, order approval)`; a session holding `order.discount.override` is
+ * not limited. Above it, the approval's token is spent (once) or the change is refused with
+ * `discount_over_limit` (`params.effectiveBp`, `params.limitBp`) so the till can ask for a manager PIN.
+ * Returns the order's new approval: raised to the effective discount when a manager approved it (an
+ * override, or an unlimited session), and also when `grant` (the action sets a discount, which the
+ * session has just authorised within its own limit).
+ */
+export function enforceDiscountLimit(
+  ctx: Sales,
+  session: Session,
+  after: { lines: OrderLine[]; discount: Discount | null; approvedBp: number | null },
+  approval: DiscountApproval = {},
+  grant = false
+): number | null {
+  const measure = discountMeasure(after.lines, after.discount)
+  const effectiveBp = effectiveDiscountBp(measure)
+  if (effectiveBp === 0) return after.approvedBp
+  const raised = Math.max(after.approvedBp ?? 0, effectiveBp)
+  if (hasPermission(session, 'order.discount.override')) return raised
+  const limitBp = Math.max(session.maxDiscountBp, after.approvedBp ?? 0)
+  // Exact: granted / base <= limit, without rounding a 10 % on an odd amount into 10,01 %.
+  if (measure.base > 0 && measure.granted <= limitBp * measure.base) return grant ? raised : after.approvedBp
+  if (approval.usedBy === undefined) {
+    if (approval.token === undefined) throw new AppErrorException('discount_over_limit', { effectiveBp, limitBp })
+    const used = ctx.overrides.consumeOverride(approval.token, 'order.discount.override')
+    if (!used.ok) throw new AppErrorException(used.error.code, used.error.params)
+    approval.usedBy = used.value.byUserId
+  }
+  return raised
 }
 
 /**

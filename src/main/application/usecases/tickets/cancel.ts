@@ -19,7 +19,10 @@ export interface CancelUseCases {
    * (`already_cancelled`); a credit note is not a sale (`not_a_sale`). The sale itself never changes.
    */
   cancelTicket(session: Session, ticketId: string, reason: string): Result<TicketDto>
-  /** Needs `ticket.reprint`: the reprint counter goes up and the ticket is printed again, marked DUPLICATA. */
+  /**
+   * Needs `ticket.reprint`: the reprint counter goes up and the ticket is printed again, marked DUPLICATA.
+   * It counts in the open business day (opening one after a Z), whose Z reports it.
+   */
   reprintTicket(session: Session, ticketId: string): Result<TicketDto>
 }
 
@@ -85,6 +88,8 @@ export function createCancelUseCases(ctx: Sales): CancelUseCases {
     requirePermission(session, 'ticket.reprint')
     return uow.run((tx) => {
       const ticket = load(ticketId)
+      // The reprint counts in the day open now, opened here after a Z, so that its Z reports it.
+      const day = ensureDay(tx, ctx, session.userId)
       ctx.tickets.addReprint(tx, ticket.id)
       appendEvent(
         tx.db,
@@ -93,8 +98,7 @@ export function createCancelUseCases(ctx: Sales): CancelUseCases {
           entity: 'ticket',
           entityId: ticket.id,
           userId: session.userId,
-          // The reprint counts in the day open now (the Z of that day reports it).
-          data: { label: ticket.label, dayId: ctx.days.openDay()?.id ?? null }
+          data: { label: ticket.label, dayId: day.id }
         },
         tx.clock
       )

@@ -1,15 +1,10 @@
+import type { LineModifierDto } from '@shared/dto'
 import type { LocalizedName } from '@shared/names'
 import { AppErrorException } from '../../application/errors'
 import { discountCents, type Discount } from './discount'
 
-export interface OrderLineModifier {
-  id: string
-  name: LocalizedName
-  /** Added to the unit price; may be negative. */
-  priceDeltaCents: number
-  /** Set on a set-menu choice, whose `id` is then the chosen product: the course it was chosen in. */
-  menuCourseId?: string
-}
+/** A modifier or set-menu choice on a line (`priceDeltaCents` is added to the unit price; may be negative). */
+export type OrderLineModifier = LineModifierDto
 
 export interface OrderLine {
   id: string

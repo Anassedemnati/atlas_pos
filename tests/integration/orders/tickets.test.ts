@@ -101,6 +101,13 @@ describe('tickets: credits, reprints, split', () => {
     expect(ok(h.days.xReport(h.cashier)).reprints).toBe(2)
   })
 
+  it('a reprint after the Z opens the next day, whose Z counts it', () => {
+    const sale = restaurantTicket()
+    ok(h.days.closeDay(h.manager))
+    ok(h.tickets.reprintTicket(h.cashier, sale.id))
+    expect(ok(h.days.xReport(h.cashier))).toMatchObject({ dayNumber: 2, reprints: 1, ticketsCount: 0 })
+  })
+
   it('splitAndClose: one ticket per group, the groups adding up to the bill, the rest staying on the table', () => {
     const order = ok(h.orders.openOrder(h.cashier, { type: 'dine_in', tableId: h.fx.tables.t4 }))
     add(order.id, h.fx.products.tajine, 2000)
@@ -116,6 +123,11 @@ describe('tickets: credits, reprints, split', () => {
       ])
     )
     expect(tickets.map((t) => t.label)).toEqual(['000001', '000002'])
+    // Every payment of a split has its audit row, on the part it paid.
+    expect(h.eventRows('payment.added').map((e) => [e.entity_id, (e.data as { amountCents: number }).amountCents])).toEqual([
+      [tickets[0]!.orderId, 13483],
+      [tickets[1]!.orderId, 9150]
+    ])
     expect(tickets.map((t) => t.totalCents)).toEqual([13483, 9150])
     expect(tickets[1]!.snapshot.changeCents).toBe(850)
     const rest = ok(h.orders.getOrder(h.cashier, order.id))
