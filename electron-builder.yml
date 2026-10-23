@@ -63,6 +63,19 @@ appImage:
   artifactName: AtlasPOS-${version}-linux-${arch}.AppImage
 deb:
   afterInstall: build/linux-postinst.sh
+  # electron-builder's default list, plus what a minimal Debian lacks (found by installing the package in a bare container).
+  depends:
+    - libgtk-3-0
+    - libnotify4
+    - libnss3
+    - libxss1
+    - libxtst6
+    - xdg-utils
+    - libatspi2.0-0
+    - libuuid1
+    - libsecret-1-0
+    - libgbm1
+    - libasound2 | libasound2t64
   artifactName: AtlasPOS-${version}-linux-${arch}.deb
 mac:
   icon: resources/icon.icns
