@@ -2,7 +2,7 @@ import { newId } from '../../src/shared/ids'
 import { PERMISSIONS, type Permission } from '../../src/shared/permissions'
 import type { Result } from '../../src/shared/result'
 import { createEventBus, type DomainEvent } from '../../src/main/application/events'
-import type { PrintJob, PrintSpooler } from '../../src/main/application/ports'
+import type { EventBus, PrintJob, PrintSpooler } from '../../src/main/application/ports'
 import { createCustomersService, type CustomersService } from '../../src/main/application/usecases/customers'
 import { createDaysService, type DaysService } from '../../src/main/application/usecases/days'
 import { createOrdersService, type OrdersService } from '../../src/main/application/usecases/orders'
@@ -214,7 +214,15 @@ export interface SalesHarness {
   cleanup(): void
 }
 
-export function salesHarness(startIso = local(10, 22, 11)): SalesHarness {
+export interface SalesHarnessOptions {
+  /**
+   * Replaces the recording spooler with another (the real print queue, in the printing tests). It gets what it
+   * needs to be wired to the same database, clock and event bus as the use cases; `spooler.jobs()` then reads nothing.
+   */
+  spooler?: (parts: { t: TempDb; clock: MutableClock; bus: EventBus; uow: UnitOfWork; settings: SettingsRepo }) => PrintSpooler
+}
+
+export function salesHarness(startIso = local(10, 22, 11), options: SalesHarnessOptions = {}): SalesHarness {
   const t = tempDb()
   const clock = mutableClock(startIso)
   const bus = createEventBus()
@@ -236,7 +244,15 @@ export function salesHarness(startIso = local(10, 22, 11)): SalesHarness {
       return {}
     }
   }
-  const deps = { db: t.db, uow, clock, settings, spooler, overrides: users, backup }
+  const deps = {
+    db: t.db,
+    uow,
+    clock,
+    settings,
+    spooler: options.spooler ? options.spooler({ t, clock, bus, uow, settings }) : spooler,
+    overrides: users,
+    backup
+  }
   const session = (userId: string, displayName: string, permissions: readonly Permission[], maxDiscountBp: number): Session => ({
     userId,
     displayName,
