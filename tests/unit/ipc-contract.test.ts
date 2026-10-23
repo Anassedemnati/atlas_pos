@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { CHANNELS, EVENT_TYPES } from '../../src/shared/ipc/channels'
 import { IpcContract, type Channel } from '../../src/shared/ipc-contract'
 import { AppErrorException } from '../../src/main/application/errors'
+import type { SetupService } from '../../src/main/application/usecases/setup'
 import type { Runtime } from '../../src/main/composition/runtime'
 import type { Services } from '../../src/main/composition/services'
 import type { Session } from '../../src/main/domain/users/session'
@@ -88,7 +89,7 @@ function harness(services: Services | null = fakeServices().services, options: {
     restore: vi.fn()
   } as unknown as Runtime
   const shell = { quitToDesktop: vi.fn(), restartNormally: vi.fn() }
-  const deps = { paths: { backups: '/nowhere' } as DataPaths, runtime, shell: shell as unknown as ShellPorts, log }
+  const deps = { paths: { backups: '/nowhere' } as DataPaths, runtime, setup: {} as SetupService, shell: shell as unknown as ShellPorts, log }
   const sessions: SessionStore = createSessionStore()
   const call = (channel: Channel, input: unknown, windowId = 1) => dispatch(channel, windowId, input, deps, sessions)
   return { call, log, sessions, deps, shell }

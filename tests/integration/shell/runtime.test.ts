@@ -15,6 +15,7 @@ import { createSessionStore } from '../../../src/main/interfaces/ipc/session-sto
 import type { Logger } from '../../../src/main/logger'
 import { ensureDataLayout, type DataPaths } from '../../../src/main/paths'
 import { hashSecret } from '../../../src/main/infrastructure/security/password'
+import { testSetupService } from '../../helpers/setup'
 import { PINS, TECHNICIAN_CODE, seedUsers } from '../../helpers/users'
 
 const dirs: string[] = []
@@ -70,7 +71,8 @@ function boot(paths: DataPaths, options: { safeMode?: boolean } = {}) {
     restartNormally: ReturnType<typeof vi.fn>
   }
   const durableLog = vi.fn()
-  const deps: IpcDeps = { paths, runtime, shell, log: logger, durableLog }
+  const setup = testSetupService({ paths, log: logger, restore: (file) => runtime.restore(file) })
+  const deps: IpcDeps = { paths, runtime, setup, shell, log: logger, durableLog }
   const sessions = createSessionStore()
   const call = (channel: Channel, input: unknown, windowId = 1) => dispatch(channel, windowId, input, deps, sessions)
   return { runtime, call, shell, sessions, durableLog }

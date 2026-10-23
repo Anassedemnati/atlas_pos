@@ -37,6 +37,7 @@ export function createShellPorts(deps: {
   log: Logger
   quit: () => void
   restartNormally: () => void
+  afterSetup: () => void
 }): ShellPorts {
   const { windows, config } = deps
   return {
@@ -51,6 +52,7 @@ export function createShellPorts(deps: {
       }),
     quitToDesktop: deps.quit,
     restartNormally: deps.restartNormally,
+    afterSetup: deps.afterSetup,
     detectHardware: () =>
       detectHardware({
         listSystemPrinters,

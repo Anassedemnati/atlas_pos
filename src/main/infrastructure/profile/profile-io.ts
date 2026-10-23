@@ -125,7 +125,7 @@ export type Profile = z.output<typeof ProfileSchema>
 
 // Export -------------------------------------------------------------------------------------------
 
-const slug = (text: string): string =>
+export const slug = (text: string): string =>
   text
     .replace(/œ/gi, 'oe')
     .replace(/æ/gi, 'ae')

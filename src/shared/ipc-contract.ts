@@ -3,9 +3,11 @@ import type { AtlasEvent, AtlasEventType } from './dto'
 import type { Result } from './result'
 import { appChannels } from './ipc/app'
 import { catalogChannels } from './ipc/catalog'
+import { configChannels } from './ipc/config'
 import type { ChannelDef } from './ipc/define'
 import { ordersChannels } from './ipc/orders'
 import { customersChannels, daysChannels, ticketsChannels } from './ipc/sales'
+import { setupChannels, techChannels } from './ipc/setup'
 import { backupChannels, printingChannels, settingsChannels } from './ipc/system'
 import { usersChannels } from './ipc/users'
 
@@ -24,7 +26,10 @@ export const IpcContract = {
   ...customersChannels,
   ...settingsChannels,
   ...backupChannels,
-  ...printingChannels
+  ...printingChannels,
+  ...configChannels,
+  ...setupChannels,
+  ...techChannels
 } satisfies Record<string, ChannelDef>
 
 export type IpcContract = typeof IpcContract

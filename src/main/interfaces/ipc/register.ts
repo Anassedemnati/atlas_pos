@@ -11,6 +11,7 @@ import { createCallContext, type CallContext, type Handler, type Handlers, type 
 import { ordersHandlers } from './orders'
 import { salesHandlers } from './sales'
 import type { SessionStore } from './session-store'
+import { setupHandlers } from './setup'
 import { systemHandlers } from './system'
 import { usersHandlers } from './users'
 
@@ -26,7 +27,8 @@ export const allHandlers: Handlers<Channel> = {
   ...catalogHandlers,
   ...ordersHandlers,
   ...salesHandlers,
-  ...systemHandlers
+  ...systemHandlers,
+  ...setupHandlers
 }
 
 function authorize(auth: ChannelAuth, ctx: CallContext): void {

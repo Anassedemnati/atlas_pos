@@ -77,7 +77,31 @@ export const CHANNELS = [
   'printing.dismissJob',
   'hardware.detect',
   'hardware.testPrinter',
-  'hardware.openDrawer'
+  'hardware.openDrawer',
+  'floor.list',
+  'payments.list',
+  'printing.routing',
+  'users.list',
+  'setup.templates',
+  'setup.getDraft',
+  'setup.saveDraft',
+  'setup.resetDraft',
+  'setup.detectHardware',
+  'setup.testPrinter',
+  'setup.testBackupTarget',
+  'setup.previewImport',
+  'setup.pickLogo',
+  'setup.applyProfile',
+  'setup.finish',
+  'setup.openTill',
+  'setup.listBackupsAt',
+  'setup.restoreFrom',
+  'tech.applyChanges',
+  'tech.exportProfile',
+  'tech.importProfile',
+  'tech.logs',
+  'tech.restore',
+  'tech.quitToDesktop'
 ] as const satisfies readonly Channel[]
 
 export const EVENT_TYPES = [

@@ -4,8 +4,8 @@ import { AppErrorException } from '../../application/errors'
 import { refuse } from '../../application/usecases/users/outcome'
 import { SETTINGS, isSettingKey, type SettingKey, type SettingsValues } from '../../domain/config/settings-registry'
 import { requirePermission } from '../../domain/users/session'
-import { listBackups, type BackupEntry } from '../../infrastructure/backup/restore'
-import type { BackupTarget } from '../../infrastructure/backup/targets'
+import { pickedFolderTarget, toBackupEntryDto } from '../../infrastructure/backup/picked'
+import { listBackups } from '../../infrastructure/backup/restore'
 import { appendEvent } from '../../infrastructure/db/event-log'
 import { readPrinter } from '../../infrastructure/printing/router'
 import { ok, type CallContext, type Handlers, type IpcDeps } from './context'
@@ -14,27 +14,6 @@ type SystemChannel = keyof typeof settingsChannels | keyof typeof backupChannels
 
 /** Never read or written over IPC: the technician code has its own use cases. */
 const SECRET: SettingKey = 'tech.codeHash'
-
-/** A folder chosen by hand, read like a destination's root (`AtlasBackup/full`, `AtlasBackup/live`). */
-const pickedFolder = (folder: string): BackupTarget => ({
-  id: 'picked',
-  role: 'disk',
-  targetKey: '',
-  describe: () => folder,
-  resolveRoot: async () => folder,
-  setupRoot: async () => folder
-})
-
-const toEntryDto = (entry: BackupEntry, picked: boolean): BackupEntryDto => ({
-  source: picked ? 'picked' : entry.source,
-  role: entry.role,
-  file: entry.file,
-  fileName: entry.fileName,
-  createdAt: entry.manifest.createdAt,
-  kind: entry.manifest.kind,
-  schemaVersion: entry.manifest.schemaVersion,
-  appVersion: entry.manifest.appVersion
-})
 
 /**
  * Who may see and restore backups. With no database open, only the recovery of a corrupt database
@@ -55,10 +34,10 @@ function requireBackupAccess(ctx: CallContext, deps: IpcDeps, restore: boolean):
 async function backupsFor(ctx: CallContext, deps: IpcDeps, folder: string | undefined): Promise<BackupEntryDto[]> {
   if (folder !== undefined) {
     if (!ctx.sessions.hasFolder(ctx.windowId, folder)) throw new AppErrorException('forbidden', { reason: 'folder_not_picked' })
-    return (await listBackups([pickedFolder(folder)], folder)).map((entry) => toEntryDto(entry, true))
+    return (await listBackups([pickedFolderTarget(folder)], folder)).map((entry) => toBackupEntryDto(entry, true))
   }
   const services = deps.runtime.services()
-  return (await listBackups(services ? services.targets() : [], deps.paths.backups)).map((entry) => toEntryDto(entry, false))
+  return (await listBackups(services ? services.targets() : [], deps.paths.backups)).map((entry) => toBackupEntryDto(entry, false))
 }
 
 /** Settings, backups, printers and the print queue, the hardware. */

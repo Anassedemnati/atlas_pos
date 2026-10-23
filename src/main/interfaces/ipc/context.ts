@@ -2,6 +2,8 @@ import type { HardwareDto, OrderDto } from '@shared/dto'
 import type { Channel, Out, Parsed } from '@shared/ipc-contract'
 import type { Result } from '@shared/result'
 import { AppErrorException } from '../../application/errors'
+import type { Clock } from '../../application/ports'
+import type { SetupService } from '../../application/usecases/setup'
 import type { OverrideToken, Session } from '../../domain/users/session'
 import type { Runtime } from '../../composition/runtime'
 import type { Services } from '../../composition/services'
@@ -24,13 +26,22 @@ export interface ShellPorts {
   showOnDisplay(order: OrderDto | null): void
   /** Reloads the till window on a route (after a restore). */
   navigateTill(route: string): void
+  /**
+   * The database has just been created (the setup finished) or restored onto a new installation: starts what
+   * depends on its settings (kiosk mode, customer display, back office, auto-start). The till window stays put.
+   */
+  afterSetup(): void
 }
 
 export interface IpcDeps {
   paths: DataPaths
-  runtime: Pick<Runtime, 'status' | 'services' | 'restore'>
+  runtime: Pick<Runtime, 'status' | 'services' | 'restore' | 'reopen'>
+  /** The setup wizard's back end: used only while no installation exists. */
+  setup: SetupService
   shell: ShellPorts
   log: Logger
+  /** The system clock unless a test sets one. */
+  clock?: Clock
   /** Written synchronously to `logs/fatal.log`: what must survive the next crash (a restore nobody signed in for). */
   durableLog?: (event: string, data?: Record<string, unknown>) => void
 }
@@ -110,5 +121,15 @@ export function createCallContext(windowId: number, sessions: SessionStore, deps
       if (!session) throw new AppErrorException('not_signed_in')
       return session
     }
+  }
+}
+
+/**
+ * The setup channels work only while the application waits for its setup: no database open AND the start-up
+ * check said `needs-setup` (a corrupt or newer database also has none open, and must never be set up over).
+ */
+export function requireSetupMode(ctx: CallContext, deps: Pick<IpcDeps, 'runtime'>): void {
+  if (!ctx.noDatabase() || deps.runtime.status().report?.state !== 'needs-setup') {
+    throw new AppErrorException('forbidden', { reason: 'setup_complete' })
   }
 }

@@ -35,6 +35,11 @@ export interface Runtime {
    * logged and routes to the recovery screen.
    */
   boot(): void
+  /**
+   * Boots again once the setup (or a restore onto a new installation) has put a database in place: the same
+   * check and opening as `boot()`, then the background work. Refused when the services are already open.
+   */
+  reopen(): void
   /** Starts the print queue, the backup engine and the USB poll. Call it once the till window exists. */
   startBackground(): void
   /**
@@ -78,20 +83,30 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     if (started && current) current.start({ printing: !safeMode })
   }
 
+  const boot = (unclean: boolean): void => {
+    try {
+      report = startupCheck({ paths, clock, unclean, log: log.info })
+      log.info('startup.report', { state: report.state, unclean: report.unclean, restoredOrders: report.restoredOrders.length })
+    } catch (error) {
+      log.error('startup.check_failed', describeError(error))
+      startupError = error instanceof Error ? error.message : String(error)
+      return
+    }
+    open()
+  }
+
   return {
     status,
     services: () => current,
 
-    boot() {
-      try {
-        report = startupCheck({ paths, clock, unclean: deps.unclean, log: log.info })
-        log.info('startup.report', { state: report.state, unclean: report.unclean, restoredOrders: report.restoredOrders.length })
-      } catch (error) {
-        log.error('startup.check_failed', describeError(error))
-        startupError = error instanceof Error ? error.message : String(error)
-        return
-      }
-      open()
+    boot: () => boot(deps.unclean),
+
+    reopen() {
+      if (current) throw new Error('Runtime.reopen: the services are already open')
+      report = null
+      startupError = null
+      boot(false)
+      startCurrent()
     },
 
     startBackground() {

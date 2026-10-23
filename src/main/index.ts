@@ -7,6 +7,8 @@ import { app, BrowserWindow, ipcMain } from 'electron'
 import { createEventBus } from './application/events'
 import { runBootCheck } from './boot-check'
 import { createRuntime, type Runtime } from './composition/runtime'
+import type { Services } from './composition/services'
+import { createSetupService } from './application/usecases/setup'
 import { createElectronHtmlPrinter } from './infrastructure/printing/electron/os-print'
 import { renderHtmlToBitmap } from './infrastructure/printing/electron/render-html-to-bitmap'
 import { forwardEvents } from './interfaces/ipc/events'
@@ -113,6 +115,46 @@ function trackSessions(window: BrowserWindow, sessions: SessionStore): void {
   })
 }
 
+/**
+ * Kiosk mode does not stop Alt+F4, and a closed till quits with code 0, which the watchdog takes as "stop for
+ * good": only an authorized quit (the technician, the OS ending the session) closes the till. Once is enough.
+ */
+let kioskGuarded = false
+function guardKiosk(window: BrowserWindow): void {
+  if (kioskGuarded || dev) return
+  kioskGuarded = true
+  window.on('close', (event) => {
+    if (!quitRequested) event.preventDefault()
+  })
+  window.on('session-end', () => (quitRequested = true))
+}
+
+/** What depends on the settings of the open database and is not needed to sell: customer display, back office, auto-start. */
+function startServiceDependents(current: Runtime, services: Services, sessions: SessionStore): void {
+  if (!safeMode) {
+    optional('customer-display', () => {
+      if (display || !services.settings.get('display.customerEnabled')) return
+      display = createCustomerDisplay(windowConfig)
+      if (display) {
+        trackSessions(display, sessions)
+        display.on('closed', () => (display = null))
+      }
+    })
+  }
+  optional('backoffice', () => {
+    if (!stopBackoffice && services.settings.get('backoffice.enabled')) stopBackoffice = startBackoffice({ runtime: current, log })
+  })
+  optional('autostart', () => setAutostart(services.settings.get('autostart.enabled')))
+}
+
+/** The setup has just finished (or a backup was restored onto a new installation): the till window is already open, now it can become a kiosk. */
+function applyKiosk(services: Services): void {
+  if (!till || till.isDestroyed() || safeMode || dev || !services.settings.get('kiosk.enabled')) return
+  till.setKiosk(true)
+  till.setFullScreen(true)
+  guardKiosk(till)
+}
+
 async function start(): Promise<void> {
   // 1. Paths and the log file (the single-instance lock is already held).
   const dataDir = resolveDataDir(process.env, process.platform)
@@ -125,14 +167,16 @@ async function start(): Promise<void> {
 
   // 3. The start-up check, then the database and the services for `ok` and `recovered` only.
   const bus = createEventBus((error, event) => log.error('event.handler_failed', { type: event.type, ...describeError(error) }))
+  const clock = { now: () => new Date() }
+  const htmlPrinter = createElectronHtmlPrinter()
   const current = createRuntime({
     paths,
-    clock: { now: () => new Date() },
+    clock,
     bus,
     log,
     appVersion: app.getVersion(),
     rasterize: renderHtmlToBitmap,
-    htmlPrinter: createElectronHtmlPrinter(),
+    htmlPrinter,
     unclean: runningLock.wasUnclean,
     safeMode
   })
@@ -149,9 +193,27 @@ async function start(): Promise<void> {
     appVersion: app.getVersion(),
     log,
     quit: () => app.quit(),
-    restartNormally
+    restartNormally,
+    afterSetup() {
+      const opened = current.services()
+      if (!opened) return
+      optional('kiosk', () => applyKiosk(opened))
+      startServiceDependents(current, opened, sessions)
+    }
   })
-  register(ipcMain, { paths, runtime: current, shell, log, durableLog: writeDurable }, sessions)
+  // The setup wizard's back end: used only while no installation exists (the IPC layer enforces it).
+  const setup = createSetupService({
+    paths,
+    clock,
+    bus,
+    log,
+    appVersion: app.getVersion(),
+    rasterize: renderHtmlToBitmap,
+    htmlPrinter,
+    setAutostart,
+    restore: (file) => current.restore(file)
+  })
+  register(ipcMain, { paths, runtime: current, setup, shell, log, clock, durableLog: writeDurable }, sessions)
   forwardEvents(bus, (event) => sendToWindows(windows, event))
 
   // 5. The till window, on the route the start-up decided. No kiosk while no database is open (setup,
@@ -159,14 +221,7 @@ async function start(): Promise<void> {
   const kiosk = !safeMode && services !== null && services.settings.get('kiosk.enabled')
   till = createTillWindow(windowConfig, kiosk)
   trackSessions(till, sessions)
-  if (kiosk && !dev) {
-    // Kiosk mode does not stop Alt+F4, and a closed till quits with code 0, which the watchdog takes as
-    // "stop for good": only an authorized quit (the technician, the OS ending the session) closes it.
-    till.on('close', (event) => {
-      if (!quitRequested) event.preventDefault()
-    })
-    till.on('session-end', () => (quitRequested = true))
-  }
+  if (kiosk) guardKiosk(till)
   till.on('closed', () => {
     till = null
     app.quit()
@@ -192,26 +247,12 @@ async function start(): Promise<void> {
   // 6. Background work, only now: printing renders in hidden windows, which must never be the last ones.
   // None of it is needed to sell: a failure is logged and the till carries on.
   optional('background', () => current.startBackground())
-  if (services && !safeMode) {
-    optional('customer-display', () => {
-      if (!services.settings.get('display.customerEnabled')) return
-      display = createCustomerDisplay(windowConfig)
-      if (display) {
-        trackSessions(display, sessions)
-        display.on('closed', () => (display = null))
-      }
-    })
-  }
-  if (services) {
-    optional('backoffice', () => {
-      if (services.settings.get('backoffice.enabled')) stopBackoffice = startBackoffice({ runtime: current, log })
-    })
-    optional('autostart', () => setAutostart(services.settings.get('autostart.enabled')))
-    bus.subscribe('settings.changed', ({ keys }) => {
-      const now = current.services()
-      if (now && keys.includes('autostart.enabled')) optional('autostart', () => setAutostart(now.settings.get('autostart.enabled')))
-    })
-  }
+  if (services) startServiceDependents(current, services, sessions)
+  // Whichever database is open (it may be created by the setup, or replaced by a restore).
+  bus.subscribe('settings.changed', ({ keys }) => {
+    const now = current.services()
+    if (now && keys.includes('autostart.enabled')) optional('autostart', () => setAutostart(now.settings.get('autostart.enabled')))
+  })
 }
 
 /** Stops the services, closes the database and releases the running lock (a clean quit). */
