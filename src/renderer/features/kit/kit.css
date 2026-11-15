@@ -1,0 +1,46 @@
+.kit__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+.kit__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.kit__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--space-4);
+  align-items: start;
+}
+.kit__grid--cards {
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+.kit__wizard {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  gap: var(--space-6);
+}
+.kit__pads {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--space-6);
+}
+.kit__icons {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: var(--space-3);
+}
+.kit__icon {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--navy);
+  font-size: 14px;
+}

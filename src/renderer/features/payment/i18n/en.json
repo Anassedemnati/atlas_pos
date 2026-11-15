@@ -1,0 +1,18 @@
+{
+  "payment": {
+    "title": "Payment",
+    "backToOrder": "Back to the order",
+    "paid": "Already paid",
+    "due": "Left to pay",
+    "change": "Change",
+    "giveChange": "Give the change back",
+    "settled": "The order is fully paid",
+    "exact": "Exact",
+    "amount": "Amount",
+    "addCash": "Take cash",
+    "addAmount": "Add this amount",
+    "validate": "Confirm and print",
+    "closed": "Ticket {{label}} saved",
+    "removeReason": "Reason for removing the payment"
+  }
+}

@@ -1,0 +1,63 @@
+{
+  "till": {
+    "type": {
+      "counter": "Sur place",
+      "takeaway": "À emporter",
+      "dine_in": "En salle",
+      "delivery": "Livraison"
+    },
+    "orderNo": "Commande n°",
+    "switchUser": "Changer d'utilisateur",
+    "lock": "Verrouiller la caisse",
+    "override": {
+      "title": "Accord d'un gérant",
+      "hint": "Un gérant doit saisir son code PIN pour autoriser cette action."
+    },
+    "gate": {
+      "title": "Clôturez la journée précédente",
+      "message": "La journée n° {{number}} est trop ancienne : faites sa clôture (Z) avant de vendre.",
+      "needManager": "Un gérant devra saisir son code PIN pour clôturer la journée.",
+      "close": "Clôturer la journée",
+      "finishOrders": "Terminer les commandes ouvertes"
+    },
+    "printJobs": {
+      "title": "Impressions à vérifier",
+      "none": "Aucune impression en attente.",
+      "reprint": "Réimprimer",
+      "dismiss": "Ignorer",
+      "kind": {
+        "receipt": "Ticket",
+        "kitchen": "Cuisine",
+        "kitchen-cancel": "Annulation cuisine",
+        "drawer": "Tiroir-caisse",
+        "z": "Rapport Z",
+        "prebill": "Addition",
+        "invoice": "Facture"
+      },
+      "status": {
+        "pending": "En attente",
+        "printing": "Impression…",
+        "done": "Imprimé",
+        "failed": "Échec",
+        "uncertain": "À réimprimer ?"
+      }
+    },
+    "customer": {
+      "title": "Client",
+      "search": "Rechercher un client",
+      "searchPlaceholder": "Nom, société, ICE ou téléphone",
+      "none": "Aucun client trouvé.",
+      "new": "Nouveau client",
+      "create": "Créer et choisir",
+      "name": "Nom",
+      "companyName": "Raison sociale",
+      "ice": "ICE (15 chiffres)",
+      "iceInvalid": "L'ICE compte 15 chiffres.",
+      "iceShort": "ICE",
+      "address": "Adresse",
+      "phone": "Téléphone",
+      "backToSearch": "Retour à la recherche",
+      "clear": "Retirer le client"
+    }
+  }
+}

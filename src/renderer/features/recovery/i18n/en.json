@@ -1,0 +1,37 @@
+{
+  "recovery": {
+    "title": "Recovery after a power cut",
+    "subtitle": "The software restarted. All the data was checked.",
+    "integrityOk": "Database is intact",
+    "integrityFailed": "Integrity check failed: call the technician",
+    "noOrders": "No open order to restore",
+    "ordersRestored": "Open orders restored: {{count}} ({{names}})",
+    "lastBackup": "Last backup: {{time}}",
+    "noBackup": "No backup yet",
+    "noTicketLost": "No ticket lost",
+    "continue": "Continue selling",
+    "orderNo": "no. {{number}}",
+    "order": "Order",
+    "corruptTitle": "Database damaged",
+    "corruptMessage": "The till data cannot be read. Restore the latest backup.",
+    "noBackups": "No backup found. Plug in the USB key or call the technician.",
+    "restore": "Restore",
+    "restoreTitle": "Restore this backup?",
+    "restoreMessage": "The current data is replaced by the backup's.",
+    "kind": {
+      "live": "Continuous",
+      "full": "Full",
+      "pre-change": "Before a change",
+      "manual": "Manual"
+    },
+    "updateRequired": "Update required",
+    "updateMessage": "This data comes from a newer version (database {{found}}, this version handles {{supported}}). Install the latest Atlas POS.",
+    "quit": "Quit to the desktop",
+    "safeTitle": "Safe mode",
+    "safeMessage": "The app stopped several times in a row. Restore a backup or restart normally with the technician code.",
+    "errorTitle": "Cannot start",
+    "errorMessage": "The start-up check failed. Call the technician.",
+    "technician": "Technician code",
+    "tryLogin": "Try to sign in"
+  }
+}

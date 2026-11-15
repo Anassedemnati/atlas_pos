@@ -1,0 +1,33 @@
+{
+  "closure": {
+    "title": "Closure",
+    "xTitle": "X report (day so far)",
+    "zTitle": "Z report no. {{number}}",
+    "day": "Day {{number}}",
+    "xTotal": "Total sales",
+    "ticketsCount": "{{count}} tickets",
+    "ticketsLabel": "Tickets",
+    "credits": "Credit notes",
+    "gross": "Gross",
+    "discounts": "Discounts",
+    "freeItems": "Free items",
+    "voids": "Voided lines",
+    "reprints": "Duplicates",
+    "byPayment": "By payment method",
+    "byVat": "VAT by rate (net + VAT)",
+    "byUser": "By staff",
+    "noOpenDay": "No open day: no sale since the last closure.",
+    "closeDay": "Close the day (Z)",
+    "confirmTitle": "Close the day?",
+    "confirmMessage": "The Z report is printed and the day is closed. The next sale opens a new day.",
+    "done": "Day closed: Z no. {{number}} printed",
+    "blocked": "Cannot close: these orders are still open. Pay or empty them.",
+    "openOrder": "Open",
+    "needManager": "A manager will have to enter their PIN to confirm the closure.",
+    "history": "Past closures",
+    "noHistory": "No closure yet.",
+    "view": "View",
+    "reprintZ": "Print the Z again",
+    "zReprinted": "Z no. {{number}} sent to the printer"
+  }
+}

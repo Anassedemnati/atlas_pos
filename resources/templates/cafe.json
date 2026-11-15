@@ -1,0 +1,138 @@
+{
+  "id": "cafe",
+  "version": 1,
+  "modules": {
+    "tables": false,
+    "kitchen": true,
+    "menus": true,
+    "customers": false,
+    "stock": false,
+    "barcode": false,
+    "scale": false
+  },
+  "settings": {
+    "day.cutoverHour": 5,
+    "till.autoLockSeconds": 120
+  },
+  "paymentMethods": [
+    {"code":"cash","name":{"fr":"Espèces","ar":"نقدا","en":"Cash"},"opens_drawer":true,"active":true},
+    {"code":"card","name":{"fr":"Carte bancaire","ar":"بطاقة بنكية","en":"Bank card"},"opens_drawer":false,"active":true},
+    {"code":"cheque","name":{"fr":"Chèque","ar":"شيك","en":"Cheque"},"opens_drawer":false,"active":false}
+  ],
+  "profiles": [
+    {"code":"gerant","name":{"fr":"Gérant","ar":"مدير","en":"Manager"},"permissions":["order.discount","order.discount.override","order.void_sent","order.free_item","ticket.cancel","ticket.reprint","drawer.open","day.close","report.x","invoice.create","catalog.manage","users.manage","settings.manage","backup.restore","backoffice.login"],"max_discount_bp":10000},
+    {"code":"caissier","name":{"fr":"Caissier","ar":"أمين الصندوق","en":"Cashier"},"permissions":["order.discount","report.x","ticket.reprint"],"max_discount_bp":1000},
+    {"code":"serveur","name":{"fr":"Serveur","ar":"نادل","en":"Waiter"},"permissions":["order.discount"],"max_discount_bp":0}
+  ],
+  "categories": [
+    {"code":"cafes","name":{"fr":"Cafés","ar":"القهوة","en":"Coffees"},"color":"#7A4B2A"},
+    {"code":"thes","name":{"fr":"Thés et infusions","ar":"الشاي والأعشاب","en":"Teas and infusions"},"color":"#2E7D4F"},
+    {"code":"jus-boissons","name":{"fr":"Jus et boissons fraîches","ar":"العصائر والمشروبات الباردة","en":"Juices and cold drinks"},"color":"#C27A0E"},
+    {"code":"viennoiseries","name":{"fr":"Viennoiseries","ar":"المعجنات","en":"Viennoiseries"},"color":"#B5532A"},
+    {"code":"crepes-galettes","name":{"fr":"Crêpes et galettes","ar":"الفطائر المغربية","en":"Moroccan pancakes and flatbreads"},"color":"#6B7A2A"},
+    {"code":"sandwichs","name":{"fr":"Sandwichs et snacks","ar":"السندويتشات والوجبات الخفيفة","en":"Sandwiches and snacks"},"color":"#A63D3D"},
+    {"code":"desserts","name":{"fr":"Desserts","ar":"الحلويات","en":"Desserts"},"color":"#8E4A8F"},
+    {"code":"formules","name":{"fr":"Formules","ar":"العروض","en":"Formulas"},"color":"#14213D"}
+  ],
+  "products": [
+    {"code":"cafe-noir","category":"cafes","name":{"fr":"Café noir","ar":"قهوة سوداء","en":"Black coffee"},"price_cents":1000,"vat_bp":1000,"modifier_groups":["sucre"],"image":true},
+    {"code":"cafe-creme","category":"cafes","name":{"fr":"Café crème","ar":"قهوة بالحليب","en":"Coffee with milk"},"price_cents":1200,"vat_bp":1000,"modifier_groups":["sucre"]},
+    {"code":"nous-nous","category":"cafes","name":{"fr":"Nous-nous","ar":"نص نص","en":"Half coffee, half milk"},"price_cents":1300,"vat_bp":1000,"modifier_groups":["sucre"],"image":true},
+    {"code":"cappuccino","category":"cafes","name":{"fr":"Cappuccino","ar":"كابتشينو","en":"Cappuccino"},"price_cents":1600,"vat_bp":1000,"modifier_groups":["sucre"],"image":true},
+    {"code":"cafe-latte","category":"cafes","name":{"fr":"Café latte","ar":"لاتيه","en":"Latte"},"price_cents":1800,"vat_bp":1000,"modifier_groups":["sucre"]},
+    {"code":"chocolat-chaud","category":"cafes","name":{"fr":"Chocolat chaud","ar":"شوكولاتة ساخنة","en":"Hot chocolate"},"price_cents":1800,"vat_bp":1000},
+    {"code":"cafe-glace","category":"cafes","name":{"fr":"Café glacé","ar":"قهوة مثلجة","en":"Iced coffee"},"price_cents":2000,"vat_bp":1000},
+    {"code":"the-menthe","category":"thes","name":{"fr":"Thé à la menthe","ar":"أتاي بالنعناع","en":"Mint tea"},"price_cents":1200,"vat_bp":1000,"modifier_groups":["sucre"],"image":true},
+    {"code":"the-menthe-grand","category":"thes","name":{"fr":"Thé à la menthe (grande théière)","ar":"أتاي بالنعناع (إبريق كبير)","en":"Mint tea (large pot)"},"price_cents":2000,"vat_bp":1000,"modifier_groups":["sucre"]},
+    {"code":"verveine","category":"thes","name":{"fr":"Verveine (louiza)","ar":"لويزة","en":"Lemon verbena tea"},"price_cents":1200,"vat_bp":1000,"modifier_groups":["sucre"]},
+    {"code":"camomille","category":"thes","name":{"fr":"Camomille","ar":"بابونج","en":"Chamomile tea"},"price_cents":1200,"vat_bp":1000,"modifier_groups":["sucre"]},
+    {"code":"jus-orange","category":"jus-boissons","name":{"fr":"Jus d'orange pressé","ar":"عصير البرتقال الطبيعي","en":"Fresh orange juice"},"price_cents":1500,"vat_bp":1000,"image":true},
+    {"code":"jus-avocat","category":"jus-boissons","name":{"fr":"Jus d'avocat","ar":"عصير الأفوكادو","en":"Avocado juice"},"price_cents":2000,"vat_bp":1000,"image":true},
+    {"code":"jus-banane","category":"jus-boissons","name":{"fr":"Jus de banane","ar":"عصير الموز","en":"Banana juice"},"price_cents":1800,"vat_bp":1000},
+    {"code":"cocktail-fruits","category":"jus-boissons","name":{"fr":"Cocktail de fruits","ar":"كوكتيل فواكه","en":"Fruit cocktail"},"price_cents":2200,"vat_bp":1000},
+    {"code":"citronnade","category":"jus-boissons","name":{"fr":"Citronnade","ar":"ليموناضة","en":"Lemonade"},"price_cents":1500,"vat_bp":1000},
+    {"code":"eau-50cl","category":"jus-boissons","name":{"fr":"Eau minérale 50 cl","ar":"ماء معدني 50 cl","en":"Mineral water 50 cl"},"price_cents":700,"vat_bp":1000},
+    {"code":"soda","category":"jus-boissons","name":{"fr":"Soda 33 cl","ar":"مشروب غازي 33 cl","en":"Soft drink 33 cl"},"price_cents":1200,"vat_bp":1000},
+    {"code":"lben","category":"jus-boissons","name":{"fr":"Lben","ar":"لبن","en":"Lben (buttermilk)"},"price_cents":1000,"vat_bp":1000},
+    {"code":"croissant","category":"viennoiseries","name":{"fr":"Croissant","ar":"كرواسون","en":"Croissant"},"price_cents":400,"vat_bp":1000,"image":true},
+    {"code":"pain-chocolat","category":"viennoiseries","name":{"fr":"Pain au chocolat","ar":"خبز بالشوكولاتة","en":"Pain au chocolat"},"price_cents":500,"vat_bp":1000,"image":true},
+    {"code":"pain-raisins","category":"viennoiseries","name":{"fr":"Pain aux raisins","ar":"خبز بالزبيب","en":"Raisin swirl"},"price_cents":500,"vat_bp":1000},
+    {"code":"brioche","category":"viennoiseries","name":{"fr":"Brioche","ar":"بريوش","en":"Brioche"},"price_cents":400,"vat_bp":1000},
+    {"code":"msemen","category":"crepes-galettes","name":{"fr":"Msemen","ar":"مسمن","en":"Msemen (flaky flatbread)"},"price_cents":300,"vat_bp":1000,"image":true},
+    {"code":"baghrir","category":"crepes-galettes","name":{"fr":"Baghrir","ar":"بغرير","en":"Baghrir (semolina pancake)"},"price_cents":400,"vat_bp":1000},
+    {"code":"harcha","category":"crepes-galettes","name":{"fr":"Harcha","ar":"حرشة","en":"Harcha (semolina flatbread)"},"price_cents":400,"vat_bp":1000},
+    {"code":"sandwich-poulet","category":"sandwichs","name":{"fr":"Sandwich poulet","ar":"ساندويتش الدجاج","en":"Chicken sandwich"},"price_cents":2500,"vat_bp":1000,"modifier_groups":["sans"],"image":true},
+    {"code":"sandwich-thon","category":"sandwichs","name":{"fr":"Sandwich thon","ar":"ساندويتش التونة","en":"Tuna sandwich"},"price_cents":2200,"vat_bp":1000,"modifier_groups":["sans"]},
+    {"code":"panini-poulet-fromage","category":"sandwichs","name":{"fr":"Panini poulet fromage","ar":"بانيني دجاج وجبن","en":"Chicken and cheese panini"},"price_cents":2800,"vat_bp":1000,"modifier_groups":["sans"]},
+    {"code":"croque-monsieur","category":"sandwichs","name":{"fr":"Croque-monsieur","ar":"كروك موسيو","en":"Croque-monsieur"},"price_cents":2400,"vat_bp":1000,"modifier_groups":["sans"]},
+    {"code":"hamburger","category":"sandwichs","name":{"fr":"Hamburger","ar":"هامبورغر","en":"Hamburger"},"price_cents":3000,"vat_bp":1000,"modifier_groups":["sans"],"image":true},
+    {"code":"omelette-fromage","category":"sandwichs","name":{"fr":"Omelette au fromage","ar":"عجة بالجبن","en":"Cheese omelette"},"price_cents":1800,"vat_bp":1000},
+    {"code":"crepe-chocolat","category":"desserts","name":{"fr":"Crêpe au chocolat","ar":"كريب بالشوكولاتة","en":"Chocolate crêpe"},"price_cents":2000,"vat_bp":1000},
+    {"code":"gaufre-chocolat","category":"desserts","name":{"fr":"Gaufre au chocolat","ar":"وافل بالشوكولاتة","en":"Chocolate waffle"},"price_cents":2200,"vat_bp":1000,"image":true},
+    {"code":"cake","category":"desserts","name":{"fr":"Cake (part)","ar":"كيك (قطعة)","en":"Cake (slice)"},"price_cents":1200,"vat_bp":1000},
+    {"code":"glace-2-boules","category":"desserts","name":{"fr":"Glace 2 boules","ar":"مثلجات (كرتان)","en":"Ice cream, 2 scoops"},"price_cents":2000,"vat_bp":1000},
+    {"code":"formule-petit-dejeuner","category":"formules","name":{"fr":"Formule petit-déjeuner","ar":"وجبة الفطور","en":"Breakfast formula"},"price_cents":3500,"vat_bp":1000}
+  ],
+  "modifierGroups": [
+    {
+      "code": "sucre",
+      "name": {"fr":"Sucre","ar":"السكر","en":"Sugar"},
+      "min_select": 0,
+      "max_select": 1,
+      "modifiers": [
+        {"name":{"fr":"Sans sucre","ar":"بدون سكر","en":"No sugar"}},
+        {"name":{"fr":"Peu de sucre","ar":"سكر قليل","en":"Little sugar"}},
+        {"name":{"fr":"Sucre à part","ar":"سكر على حدة","en":"Sugar on the side"}}
+      ]
+    },
+    {
+      "code": "sans",
+      "name": {"fr":"Sans…","ar":"بدون…","en":"Without…"},
+      "min_select": 0,
+      "max_select": 4,
+      "modifiers": [
+        {"name":{"fr":"Sans oignon","ar":"بدون بصل","en":"No onion"}},
+        {"name":{"fr":"Sans harissa","ar":"بدون هريسة","en":"No harissa"}},
+        {"name":{"fr":"Sans mayonnaise","ar":"بدون مايونيز","en":"No mayonnaise"}},
+        {"name":{"fr":"Sans cornichons","ar":"بدون مخلل","en":"No pickles"}}
+      ]
+    }
+  ],
+  "menus": [
+    {
+      "product": "formule-petit-dejeuner",
+      "courses": [
+        {
+          "name": {"fr":"Boisson chaude","ar":"مشروب ساخن","en":"Hot drink"},
+          "items": [
+            {"product":"cafe-noir"},
+            {"product":"cafe-creme"},
+            {"product":"nous-nous"},
+            {"product":"the-menthe"},
+            {"product":"verveine"}
+          ]
+        },
+        {
+          "name": {"fr":"Jus","ar":"عصير","en":"Juice"},
+          "items": [{"product":"jus-orange"},{"product":"jus-avocat","supplement_cents":500}]
+        },
+        {
+          "name": {"fr":"Viennoiserie ou crêpe","ar":"معجنات أو فطيرة","en":"Viennoiserie or pancake"},
+          "items": [{"product":"croissant"},{"product":"pain-chocolat"},{"product":"msemen"},{"product":"baghrir"}]
+        }
+      ]
+    }
+  ],
+  "rooms": [],
+  "tables": [],
+  "printersRouting": {
+    "cafes": "bar",
+    "thes": "bar",
+    "jus-boissons": "bar",
+    "viennoiseries": "kitchen",
+    "crepes-galettes": "kitchen",
+    "sandwichs": "kitchen",
+    "desserts": "kitchen",
+    "formules": "kitchen"
+  }
+}

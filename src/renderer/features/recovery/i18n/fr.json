@@ -1,0 +1,37 @@
+{
+  "recovery": {
+    "title": "Reprise après coupure de courant",
+    "subtitle": "Le logiciel a redémarré. Toutes les données ont été vérifiées.",
+    "integrityOk": "Base de données intègre",
+    "integrityFailed": "Contrôle d'intégrité en échec : appelez le technicien",
+    "noOrders": "Aucune commande ouverte à restaurer",
+    "ordersRestored": "Commandes ouvertes restaurées : {{count}} ({{names}})",
+    "lastBackup": "Dernière sauvegarde : {{time}}",
+    "noBackup": "Aucune sauvegarde pour le moment",
+    "noTicketLost": "Aucun ticket perdu",
+    "continue": "Continuer la vente",
+    "orderNo": "n° {{number}}",
+    "order": "Commande",
+    "corruptTitle": "Base de données endommagée",
+    "corruptMessage": "Les données de la caisse sont illisibles. Restaurez la dernière sauvegarde.",
+    "noBackups": "Aucune sauvegarde trouvée. Branchez la clé USB ou appelez le technicien.",
+    "restore": "Restaurer",
+    "restoreTitle": "Restaurer cette sauvegarde ?",
+    "restoreMessage": "Les données actuelles sont remplacées par celles de la sauvegarde.",
+    "kind": {
+      "live": "Continue",
+      "full": "Complète",
+      "pre-change": "Avant modification",
+      "manual": "Manuelle"
+    },
+    "updateRequired": "Mise à jour requise",
+    "updateMessage": "Ces données viennent d'une version plus récente (base {{found}}, cette version comprend {{supported}}). Installez la dernière version d'Atlas POS.",
+    "quit": "Quitter vers le bureau",
+    "safeTitle": "Mode sans échec",
+    "safeMessage": "L'application s'est arrêtée plusieurs fois de suite. Restaurez une sauvegarde ou redémarrez normalement avec le code technicien.",
+    "errorTitle": "Démarrage impossible",
+    "errorMessage": "La vérification au démarrage a échoué. Appelez le technicien.",
+    "technician": "Code technicien",
+    "tryLogin": "Essayer de se connecter"
+  }
+}

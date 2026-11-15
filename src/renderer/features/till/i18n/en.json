@@ -1,0 +1,63 @@
+{
+  "till": {
+    "type": {
+      "counter": "Eat in",
+      "takeaway": "Takeaway",
+      "dine_in": "Dine in",
+      "delivery": "Delivery"
+    },
+    "orderNo": "Order no.",
+    "switchUser": "Switch user",
+    "lock": "Lock the till",
+    "override": {
+      "title": "Manager approval",
+      "hint": "A manager must enter their PIN to allow this."
+    },
+    "gate": {
+      "title": "Close the previous day",
+      "message": "Day {{number}} is over: run its Z closure before selling.",
+      "needManager": "A manager will have to enter their PIN to close the day.",
+      "close": "Close the day",
+      "finishOrders": "Finish the open orders"
+    },
+    "printJobs": {
+      "title": "Prints to check",
+      "none": "No print waiting.",
+      "reprint": "Print again",
+      "dismiss": "Dismiss",
+      "kind": {
+        "receipt": "Receipt",
+        "kitchen": "Kitchen",
+        "kitchen-cancel": "Kitchen cancel",
+        "drawer": "Cash drawer",
+        "z": "Z report",
+        "prebill": "Pre-bill",
+        "invoice": "Invoice"
+      },
+      "status": {
+        "pending": "Waiting",
+        "printing": "Printing…",
+        "done": "Printed",
+        "failed": "Failed",
+        "uncertain": "Print again?"
+      }
+    },
+    "customer": {
+      "title": "Customer",
+      "search": "Find a customer",
+      "searchPlaceholder": "Name, company, ICE or phone",
+      "none": "No customer found.",
+      "new": "New customer",
+      "create": "Create and choose",
+      "name": "Name",
+      "companyName": "Company name",
+      "ice": "ICE (15 digits)",
+      "iceInvalid": "The ICE has 15 digits.",
+      "iceShort": "ICE",
+      "address": "Address",
+      "phone": "Phone",
+      "backToSearch": "Back to search",
+      "clear": "Remove the customer"
+    }
+  }
+}

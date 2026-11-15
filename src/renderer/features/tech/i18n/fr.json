@@ -1,0 +1,37 @@
+{
+  "tech": {
+    "title": "Menu technicien",
+    "enterCode": "Saisissez le code technicien",
+    "wrongCode": "Code technicien incorrect",
+    "tabs": {
+      "modules": "Modules",
+      "hardware": "Matériel",
+      "backups": "Sauvegardes",
+      "profile": "Profil",
+      "logs": "Journal",
+      "quit": "Quitter"
+    },
+    "modulesHint": "Les modules activés changent les écrans de la caisse (rechargez après modification).",
+    "module": {
+      "tables": "Plan de salle et tables",
+      "kitchen": "Cuisine (tickets cuisine)",
+      "menus": "Menus et formules",
+      "customers": "Clients",
+      "stock": "Suivi du stock",
+      "barcode": "Code-barres",
+      "scale": "Balance"
+    },
+    "noPrinters": "Aucune imprimante configurée.",
+    "testPage": "Page de test",
+    "testSent": "Page de test envoyée à {{name}}",
+    "backupNow": "Sauvegarder maintenant",
+    "backupDone": "Sauvegarde terminée",
+    "exportProfile": "Exporter le profil",
+    "importProfile": "Importer un profil",
+    "imported": "Profil importé ({{count}} produits ajoutés)",
+    "noLogs": "Journal vide.",
+    "restartNormally": "Redémarrer normalement",
+    "quitDesktop": "Quitter vers le bureau",
+    "quitMessage": "L'application se ferme et la caisse ne vend plus tant qu'elle n'est pas relancée."
+  }
+}

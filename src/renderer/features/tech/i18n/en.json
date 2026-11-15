@@ -1,0 +1,37 @@
+{
+  "tech": {
+    "title": "Technician menu",
+    "enterCode": "Enter the technician code",
+    "wrongCode": "Wrong technician code",
+    "tabs": {
+      "modules": "Modules",
+      "hardware": "Hardware",
+      "backups": "Backups",
+      "profile": "Profile",
+      "logs": "Logs",
+      "quit": "Quit"
+    },
+    "modulesHint": "Enabled modules change the till screens (reload after a change).",
+    "module": {
+      "tables": "Floor plan and tables",
+      "kitchen": "Kitchen (kitchen tickets)",
+      "menus": "Set menus",
+      "customers": "Customers",
+      "stock": "Stock tracking",
+      "barcode": "Barcodes",
+      "scale": "Scale"
+    },
+    "noPrinters": "No printer set up.",
+    "testPage": "Test page",
+    "testSent": "Test page sent to {{name}}",
+    "backupNow": "Back up now",
+    "backupDone": "Backup done",
+    "exportProfile": "Export the profile",
+    "importProfile": "Import a profile",
+    "imported": "Profile imported ({{count}} products added)",
+    "noLogs": "Empty log.",
+    "restartNormally": "Restart normally",
+    "quitDesktop": "Quit to the desktop",
+    "quitMessage": "The application closes and the till stops selling until it is started again."
+  }
+}

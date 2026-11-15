@@ -1,0 +1,153 @@
+import { readdirSync } from 'node:fs'
+import { afterEach, describe, expect, it } from 'vitest'
+import { DatabaseError } from '../../../src/main/infrastructure/db/errors'
+import { migrate, migrations, type Migration } from '../../../src/main/infrastructure/db/migrate'
+import { tempDb, type TempDb } from '../../helpers/db'
+
+const TABLES = [
+  'settings', 'event_log', 'sequences', 'profiles', 'users', 'categories', 'products',
+  'modifier_groups', 'modifiers', 'product_modifier_groups', 'menus', 'menu_courses',
+  'menu_course_items', 'rooms', 'tables', 'printers', 'category_printers', 'payment_methods',
+  'customers', 'business_days', 'orders', 'order_lines', 'payments', 'tickets', 'invoices',
+  'z_reports', 'print_jobs', 'backup_destinations', 'backup_runs'
+]
+
+const userVersion = (t: TempDb): number => t.db.pragma('user_version', { simple: true }) as number
+const tableNames = (t: TempDb): string[] =>
+  (
+    t.db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")
+      .all() as { name: string }[]
+  ).map((row) => row.name)
+
+describe('migrate', () => {
+  let t: TempDb
+  afterEach(() => t.cleanup())
+
+  it('brings an empty database to the latest user_version', () => {
+    t = tempDb({ migrate: false })
+    expect(userVersion(t)).toBe(0)
+    expect(migrate(t.db)).toEqual({ from: 0, to: migrations.length })
+    expect(userVersion(t)).toBe(migrations.length)
+  })
+
+  it('002 adds backup_destinations.created_at and the backup_runs (kind, at) index', () => {
+    t = tempDb({ migrate: false })
+    migrate(t.db, migrations.slice(0, 1))
+    t.db.prepare("INSERT INTO backup_destinations (id, role, path) VALUES ('d', 'disk', '/x')").run()
+    migrate(t.db)
+    expect(t.db.prepare("SELECT created_at AS c FROM backup_destinations WHERE id = 'd'").get()).toEqual({ c: '' })
+    const index = t.db.prepare("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'backup_runs_kind_at'").get() as
+      | { sql: string }
+      | undefined
+    expect(index?.sql).toMatch(/backup_runs \(kind, at\)/)
+  })
+
+  it('003 gives every user a till PIN failure counter and lock of their own, empty for existing users', () => {
+    t = tempDb({ migrate: false })
+    migrate(t.db, migrations.slice(0, 2))
+    t.db.prepare("INSERT INTO profiles (id, name_json, permissions_json) VALUES ('p', '{}', '[]')").run()
+    t.db
+      .prepare(
+        `INSERT INTO users (id, display_name, pin_hash, profile_id, failed_logins, locked_until, created_at)
+         VALUES ('u', 'U', 'h', 'p', 3, '2026-10-22T10:15:00.000Z', 'now')`
+      )
+      .run()
+    migrate(t.db)
+    expect(
+      t.db
+        .prepare('SELECT failed_logins, locked_until, pin_failed_logins, pin_locked_until FROM users WHERE id = ?')
+        .get('u')
+    ).toEqual({ failed_logins: 3, locked_until: '2026-10-22T10:15:00.000Z', pin_failed_logins: 0, pin_locked_until: null })
+  })
+
+  it('004 indexes order_lines.product_id, for a database that already has sold lines', () => {
+    t = tempDb({ migrate: false })
+    migrate(t.db, migrations.slice(0, 3))
+    expect(t.db.prepare("SELECT 1 FROM sqlite_master WHERE name = 'idx_order_lines_product_id'").get()).toBeUndefined()
+    migrate(t.db)
+    const index = t.db.prepare("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'idx_order_lines_product_id'").get() as
+      | { sql: string }
+      | undefined
+    expect(index?.sql).toMatch(/order_lines \(product_id\)/)
+    const plan = t.db.prepare('EXPLAIN QUERY PLAN SELECT 1 FROM order_lines WHERE product_id = ? LIMIT 1').all('p') as { detail: string }[]
+    expect(plan.map((row) => row.detail).join(' ')).toMatch(/USING (COVERING )?INDEX idx_order_lines_product_id/)
+  })
+
+  it('creates every table of schema v1', () => {
+    t = tempDb()
+    expect(tableNames(t).sort()).toEqual([...TABLES].sort())
+  })
+
+  it('is idempotent and keeps existing data', () => {
+    t = tempDb()
+    t.db.prepare("INSERT INTO settings (key, value_json, updated_at) VALUES ('k', '1', 'now')").run()
+    expect(migrate(t.db)).toEqual({ from: migrations.length, to: migrations.length })
+    expect(userVersion(t)).toBe(migrations.length)
+    expect(t.db.prepare('SELECT count(*) AS n FROM settings').get()).toEqual({ n: 1 })
+  })
+
+  it('registers every migrations/NNN_*.sql file, in order, with its content', () => {
+    const dir = new URL('../../../src/main/infrastructure/db/migrations/', import.meta.url)
+    const files = readdirSync(dir).filter((f) => f.endsWith('.sql')).sort()
+    expect(migrations.map((m) => `${m.name}.sql`)).toEqual(files)
+    expect(migrations.map((m) => m.version)).toEqual(files.map((_, i) => i + 1))
+    for (const m of migrations) expect(m.sql.length).toBeGreaterThan(0)
+  })
+
+  describe('with a custom list', () => {
+    const m1: Migration = { version: 1, name: '001_a', sql: 'CREATE TABLE a (x INTEGER);' }
+    const m2: Migration = { version: 2, name: '002_b', sql: 'CREATE TABLE b (x INTEGER);' }
+
+    it('applies only the pending migrations, in order', () => {
+      t = tempDb({ migrate: false })
+      expect(migrate(t.db, [m1])).toEqual({ from: 0, to: 1 })
+      // m1 would fail if it ran again (no IF NOT EXISTS).
+      expect(migrate(t.db, [m1, m2])).toEqual({ from: 1, to: 2 })
+      expect(userVersion(t)).toBe(2)
+      expect(tableNames(t).sort()).toEqual(['a', 'b'])
+    })
+
+    it('runs each file in one transaction: a failing file leaves no trace and no version bump', () => {
+      t = tempDb({ migrate: false })
+      migrate(t.db, [m1])
+      const bad: Migration = {
+        version: 2,
+        name: '002_bad',
+        sql: 'CREATE TABLE b (x INTEGER); INSERT INTO does_not_exist VALUES (1);'
+      }
+      expect(() => migrate(t.db, [m1, bad])).toThrow(/does_not_exist/)
+      expect(userVersion(t)).toBe(1)
+      expect(tableNames(t)).toEqual(['a'])
+      expect(t.db.inTransaction).toBe(false)
+    })
+
+    it('refuses a database from a newer app (newer_schema) and does not touch it', () => {
+      t = tempDb({ migrate: false })
+      migrate(t.db, [m1, m2])
+      t.db.exec('PRAGMA user_version = 3') // as left by an app that knows 3 migrations
+      let error: unknown
+      try {
+        migrate(t.db, [m1, m2])
+      } catch (e) {
+        error = e
+      }
+      expect(error).toBeInstanceOf(DatabaseError)
+      expect(error).toMatchObject({
+        code: 'newer_schema',
+        messageKey: 'errors.newer_schema',
+        params: { found: 3, supported: 2 }
+      })
+      expect(userVersion(t)).toBe(3)
+      expect(tableNames(t).sort()).toEqual(['a', 'b'])
+      expect(t.db.inTransaction).toBe(false)
+    })
+
+    it('rejects a list that does not number 1, 2, 3, … without gaps', () => {
+      t = tempDb({ migrate: false })
+      expect(() => migrate(t.db, [m2])).toThrow(/migration/)
+      expect(() => migrate(t.db, [m1, { ...m2, version: 3 }])).toThrow(/migration/)
+      expect(userVersion(t)).toBe(0)
+    })
+  })
+})

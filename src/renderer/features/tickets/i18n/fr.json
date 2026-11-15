@@ -1,0 +1,27 @@
+{
+  "tickets": {
+    "title": "Tickets",
+    "back": "Retour",
+    "search": "Rechercher un ticket",
+    "searchPlaceholder": "Numéro du ticket",
+    "none": "Aucun ticket.",
+    "reprint": "Duplicata",
+    "reprinted": "Duplicata du ticket {{label}} imprimé",
+    "cancel": "Annuler",
+    "cancelReason": "Motif de l'annulation",
+    "cancelled": "Avoir {{label}} émis",
+    "cancelledTag": "Annulé",
+    "credit": "Avoir sur {{label}}",
+    "invoice": {
+      "button": "Facture",
+      "pickTitle": "Facture du ticket {{label}} : choisir la société",
+      "title": "Facture {{number}}",
+      "forTicket": "Ticket {{label}}",
+      "savePdf": "Enregistrer en PDF",
+      "saved": "Facture {{number}} enregistrée",
+      "printOn": "Imprimer sur {{printer}}",
+      "printed": "Facture {{number}} envoyée à {{printer}}",
+      "noA4Printer": "Aucune imprimante système pour imprimer une facture A4 : enregistrez-la en PDF."
+    }
+  }
+}

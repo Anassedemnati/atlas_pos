@@ -1,0 +1,33 @@
+{
+  "closure": {
+    "title": "Clôture",
+    "xTitle": "Rapport X (journée en cours)",
+    "zTitle": "Rapport Z n° {{number}}",
+    "day": "Journée {{number}}",
+    "xTotal": "Total des ventes",
+    "ticketsCount": "{{count}} tickets",
+    "ticketsLabel": "Tickets",
+    "credits": "Avoirs",
+    "gross": "Brut",
+    "discounts": "Remises",
+    "freeItems": "Offerts",
+    "voids": "Lignes annulées",
+    "reprints": "Duplicatas",
+    "byPayment": "Par moyen de paiement",
+    "byVat": "TVA par taux (HT + TVA)",
+    "byUser": "Par vendeur",
+    "noOpenDay": "Aucune journée ouverte : aucune vente depuis la dernière clôture.",
+    "closeDay": "Clôturer la journée (Z)",
+    "confirmTitle": "Clôturer la journée ?",
+    "confirmMessage": "Le rapport Z est imprimé et la journée est fermée. La prochaine vente ouvrira une nouvelle journée.",
+    "done": "Journée clôturée : Z n° {{number}} imprimé",
+    "blocked": "Clôture impossible : ces commandes sont encore ouvertes. Encaissez-les ou videz-les.",
+    "openOrder": "Ouvrir",
+    "needManager": "Un gérant devra saisir son code PIN pour valider la clôture.",
+    "history": "Clôtures passées",
+    "noHistory": "Aucune clôture pour le moment.",
+    "view": "Voir",
+    "reprintZ": "Réimprimer le Z",
+    "zReprinted": "Z n° {{number}} envoyé à l'imprimante"
+  }
+}
