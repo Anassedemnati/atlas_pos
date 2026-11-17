@@ -9,3 +9,4 @@ coverage/
 /data-dev/
 test-results/
 playwright-report/
+/.devdata/
