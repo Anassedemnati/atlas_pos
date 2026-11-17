@@ -24,8 +24,11 @@ const text = z.string().trim().min(1)
 const langs = ['fr', 'ar', 'en'] as const satisfies readonly Lang[]
 const reasons = z.array(text)
 
-/** All 15 digits, as printed on the ICE certificate (spaces around it are tolerated). */
-const ice = z.string().trim().regex(/^\d{15}$/)
+/** May be left empty; filled in, it must be something (not only spaces). */
+const optionalText = z.string().trim()
+
+/** All 15 digits, as printed on the ICE certificate (spaces around it are tolerated), or empty: not every business has one. */
+const ice = z.string().trim().regex(/^(\d{15})?$/)
 
 const noModules = Object.fromEntries(MODULES.map((m) => [m, false])) as Record<ModuleKey, boolean>
 
@@ -37,18 +40,20 @@ const noModules = Object.fromEntries(MODULES.map((m) => [m, false])) as Record<M
 export const SETTINGS = {
   'business.legal': define({
     schema: z.strictObject({
-      raisonSociale: text,
+      // Only the trade name is required: many cafés and shops are run by a person with a patente and
+      // no company (no raison sociale, ICE, IF or RC). An empty field is simply not printed.
+      raisonSociale: optionalText,
       nomCommercial: text,
-      adresse: text,
-      ville: text,
-      telephone: text,
+      adresse: optionalText,
+      ville: optionalText,
+      telephone: optionalText,
       ice,
-      if: text,
-      rc: text,
-      patente: text
+      if: optionalText,
+      rc: optionalText,
+      patente: optionalText
     }),
-    // A blank form, not a valid value: the identity of the business has no sensible default, and
-    // `set` rejects this object until every field is filled.
+    // A blank form, not a valid value: the business has no sensible default name, and `set` rejects
+    // this object until the trade name is filled.
     default: {
       raisonSociale: '',
       nomCommercial: '',

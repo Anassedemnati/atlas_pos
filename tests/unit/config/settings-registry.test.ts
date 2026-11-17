@@ -119,9 +119,21 @@ describe('SETTINGS registry', () => {
       expect(schema.parse({ ...validLegal, ice: ' 001234567000012 ' }).ice).toBe('001234567000012')
     })
 
-    it.each(Object.keys(validLegal))('requires %s', (field) => {
-      expect(schema.safeParse({ ...validLegal, [field]: '' }).success).toBe(false)
-      expect(schema.safeParse({ ...validLegal, [field]: '   ' }).success).toBe(false)
+    it('requires the trade name', () => {
+      expect(schema.safeParse({ ...validLegal, nomCommercial: '' }).success).toBe(false)
+      expect(schema.safeParse({ ...validLegal, nomCommercial: '   ' }).success).toBe(false)
+      const { nomCommercial: _omitted, ...rest } = validLegal
+      expect(schema.safeParse(rest).success).toBe(false)
+    })
+
+    it('accepts a café with only its trade name (no company: no raison sociale, ICE, IF, RC or patente)', () => {
+      const blank = Object.fromEntries(Object.keys(validLegal).map((key) => [key, '']))
+      expect(schema.parse({ ...blank, nomCommercial: 'Café Atlas' })).toMatchObject({ nomCommercial: 'Café Atlas', ice: '', patente: '' })
+      expect(schema.safeParse({ ...blank, nomCommercial: 'Café Atlas', patente: '31234567' }).success).toBe(true)
+    })
+
+    it.each(Object.keys(validLegal).filter((key) => key !== 'nomCommercial'))('lets %s be empty, never missing', (field) => {
+      expect(schema.parse({ ...validLegal, [field]: '   ' })[field as keyof typeof validLegal]).toBe('')
       const { [field]: _omitted, ...rest } = validLegal as Record<string, string>
       expect(schema.safeParse(rest).success).toBe(false)
     })

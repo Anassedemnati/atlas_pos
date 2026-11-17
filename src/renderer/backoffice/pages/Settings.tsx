@@ -85,8 +85,9 @@ export function Settings() {
 
   const saveLegal = () => {
     const next: Record<string, string> = {}
-    for (const key of LEGAL_FIELDS) if (legal[key].trim() === '') next[key] = t('common.required')
-    if (!next['ice'] && !/^\d{15}$/.test(legal.ice.trim())) next['ice'] = t('bo.settings.errors.ice')
+    // Only the trade name is required; a business without a company has no ICE, IF or RC.
+    if (legal.nomCommercial.trim() === '') next['nomCommercial'] = t('common.required')
+    if (legal.ice.trim() !== '' && !/^\d{15}$/.test(legal.ice.trim())) next['ice'] = t('bo.settings.errors.ice')
     setErrors(next)
     if (Object.keys(next).length === 0) void save({ 'business.legal': legal })
   }

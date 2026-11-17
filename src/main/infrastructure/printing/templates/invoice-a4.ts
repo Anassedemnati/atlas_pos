@@ -27,6 +27,13 @@ export function invoiceA4Html(invoice: InvoiceDoc, lang: Lang): { html: string }
   const bdi = (text: string): string => `<bdi>${e(text)}</bdi>`
   const amt = (cents: number): string => `<bdi>${formatAmount(cents)}</bdi>`
   const line = (label: string, value: string): string => (value ? `<div>${e(label)} : ${bdi(value)}</div>` : '')
+  // The legal identity at the foot: only what the business has (a café run under a patente has no ICE, IF or RC).
+  const ids = ([[L.ice, b.ice], [L.if, b.if], [L.rc, b.rc], [L.patente, b.patente]] as const).filter(([, value]) => value)
+  const legalLines = [
+    ...(b.raisonSociale ? [`<div>${bdi(b.raisonSociale)}</div>`] : []),
+    ...(ids.length ? [`<div>${ids.map(([label, value]) => `${e(label)} : ${e(value)}`).join(' · ')}</div>`] : [])
+  ]
+  const legalFooter = legalLines.length ? `<div class="legal">\n${legalLines.join('\n')}\n</div>` : ''
 
   // The total of a line is its net of its own discount, as on the receipt: the column adds up to the subtotal,
   // and with the ticket discount to the total TTC.
@@ -90,9 +97,7 @@ th.n{text-align:end}
 <header>
 <div class="issuer">
 <div class="name">${bdi(b.nomCommercial)}</div>
-<div>${bdi(b.raisonSociale)}</div>
-<div>${bdi(b.adresse)}</div>
-<div>${bdi(b.ville)}</div>
+${[b.raisonSociale, b.adresse, b.ville].filter(Boolean).map((text) => `<div>${bdi(text)}</div>`).join('\n')}
 ${line(L.tel, b.telephone)}
 </div>
 <div class="meta">
@@ -130,10 +135,7 @@ ${ticketDiscount}
 <tr class="grand"><td>${e(L.totalTtc)}</td><td class="n">${amt(s.totals.totalCents)}</td></tr>
 </table>
 </div>
-<div class="legal">
-<div>${bdi(b.raisonSociale)}</div>
-<div>${e(L.ice)} : ${e(b.ice)} · ${e(L.if)} : ${e(b.if)} · ${e(L.rc)} : ${e(b.rc)} · ${e(L.patente)} : ${e(b.patente)}</div>
-</div>
+${legalFooter}
 </body>
 </html>
 `

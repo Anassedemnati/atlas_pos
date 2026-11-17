@@ -44,9 +44,11 @@ describe('field errors', () => {
 })
 
 describe('the local checks', () => {
-  it('list every missing company field at once, and a bad ICE', () => {
-    const issues = localIssues(3, defaultDraft())
-    expect(issues.map((issue) => issue.field).sort()).toEqual(['legal.adresse', 'legal.ice', 'legal.if', 'legal.nomCommercial', 'legal.patente', 'legal.raisonSociale', 'legal.rc', 'legal.telephone', 'legal.ville'].sort())
+  it('require only the trade name of the company, and refuse a malformed ICE', () => {
+    expect(localIssues(3, defaultDraft()).map((issue) => issue.field)).toEqual(['legal.nomCommercial'])
+    const nameOnly = { ...defaultDraft(), legal: { ...defaultDraft().legal, nomCommercial: 'Café Atlas' } }
+    expect(localIssues(3, nameOnly)).toEqual([])
+    expect(localIssues(3, { ...nameOnly, legal: { ...nameOnly.legal, ice: '12345' } }).map((issue) => issue.field)).toEqual(['legal.ice'])
     const filled = { ...defaultDraft(), legal: { raisonSociale: 'a', nomCommercial: 'a', adresse: 'a', ville: 'a', telephone: '1', ice: '001234567000089', if: '1', rc: '1', patente: '1' } }
     expect(localIssues(3, filled)).toEqual([])
   })

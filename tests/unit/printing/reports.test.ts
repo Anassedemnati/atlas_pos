@@ -156,6 +156,17 @@ describe('invoiceA4Html', () => {
     expect(html).toContain('dir="ltr"')
   })
 
+  it('prints only the legal fields the business has: a café under a patente shows no empty ICE, IF or RC', () => {
+    const blank = { raisonSociale: '', adresse: '', ville: '', telephone: '', ice: '', if: '', rc: '', patente: '' }
+    const patenteOnly = invoiceA4Html({ ...invoice, snapshot: { ...sale, business: { ...sale.business, ...blank, patente: '31234567' } } }, 'fr').html.replace(/<\/?bdi>/g, '')
+    expect(patenteOnly).toContain('Patente : 31234567')
+    expect(patenteOnly).not.toMatch(/IF : (·|<)/)
+    expect(patenteOnly).not.toContain('ICE : 001234567000089')
+    const nameOnly = invoiceA4Html({ ...invoice, snapshot: { ...sale, business: { ...sale.business, ...blank } } }, 'fr').html
+    expect(nameOnly).not.toContain('class="legal"')
+    expect(nameOnly).not.toContain('<div><bdi></bdi></div>')
+  })
+
   it('escapes the customer data', () => {
     const { html } = invoiceA4Html(invoice, 'fr')
     expect(html).toContain('<bdi>Alaoui &amp; Fils &lt;SARL&gt;</bdi>')

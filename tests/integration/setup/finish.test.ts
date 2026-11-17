@@ -120,16 +120,28 @@ describe('finishSetup', () => {
     expect(rows[0]!.name).toBe('Bar')
   })
 
-  it('refuses a missing ICE as invalid_input on legal.ice, and creates nothing', async () => {
+  it('refuses a malformed ICE (or a missing trade name) as invalid_input, and creates nothing', async () => {
     const service = testSetupService({ paths: env.paths })
     service.saveDraft(completeDraft(env))
     const draftFile = join(env.paths.config, 'wizard-draft.json')
     const draft = JSON.parse(readFileSync(draftFile, 'utf8'))
-    draft.legal.ice = ''
+    draft.legal.ice = '12345'
     writeFileSync(draftFile, JSON.stringify(draft))
     expect(await service.finishSetup()).toMatchObject({ ok: false, error: { code: 'invalid_input', params: { field: 'legal.ice' } } })
+    draft.legal.ice = ''
+    draft.legal.nomCommercial = ' '
+    writeFileSync(draftFile, JSON.stringify(draft))
+    expect(await service.finishSetup()).toMatchObject({ ok: false, error: { code: 'invalid_input', params: { field: 'legal.nomCommercial' } } })
     expect(existsSync(env.paths.dbFile)).toBe(false)
     expect(existsSync(draftFile)).toBe(true)
+  })
+
+  it('installs a café that has only its trade name: no raison sociale, ICE, IF, RC or patente', async () => {
+    const service = testSetupService({ paths: env.paths })
+    const legal = { raisonSociale: '', nomCommercial: 'Café Atlas', adresse: '', ville: '', telephone: '', ice: '', if: '', rc: '', patente: '' }
+    service.saveDraft(completeDraft(env, { legal }))
+    expect(await service.finishSetup()).toMatchObject({ ok: true })
+    expect(existsSync(env.paths.dbFile)).toBe(true)
   })
 
   it.each([

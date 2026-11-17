@@ -22,7 +22,7 @@ export function Company() {
     <TextField
       key={key}
       className={options.wide ? 'wiz-form__wide' : undefined}
-      label={`${t(`setupWizard.company.${key}`)} *`}
+      label={key === 'nomCommercial' ? `${t(`setupWizard.company.${key}`)} *` : t(`setupWizard.company.${key}`)}
       value={legal[key]}
       onChange={(value) => edit((state) => ({ legal: { ...state.legal, [key]: options.numeric ? value.replace(/\D/g, '').slice(0, options.numeric) : value } }))}
       error={errors[`legal.${key}`]}
@@ -52,8 +52,8 @@ export function Company() {
         {errors['legal'] && !saved.legalFromProfile && <Banner tone="warning">{errors['legal']}</Banner>}
         <Section>
           <div className="wiz-form">
-            {field('raisonSociale')}
             {field('nomCommercial')}
+            {field('raisonSociale')}
             {field('adresse')}
             {field('ville')}
             {field('telephone')}

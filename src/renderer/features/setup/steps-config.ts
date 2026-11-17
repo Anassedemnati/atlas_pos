@@ -74,11 +74,10 @@ const isPin = (value: string): boolean => /^\d{4,6}$/.test(value)
 export function localIssues(step: number, draft: WizardDraft): FieldIssue[] {
   const issues: FieldIssue[] = []
   if (step === STEP_COMPANY) {
-    for (const [key, value] of Object.entries(draft.legal)) {
-      if (key === 'ice') {
-        if (!/^\d{15}$/.test(value.trim())) issues.push({ field: 'legal.ice' })
-      } else if (value.trim() === '') issues.push({ field: `legal.${key}`, reason: 'required' })
-    }
+    // Only the trade name is required (a café under a patente has no company identity); an ICE, when given, has 15 digits.
+    if (draft.legal.nomCommercial.trim() === '') issues.push({ field: 'legal.nomCommercial', reason: 'required' })
+    const ice = draft.legal.ice.trim()
+    if (ice !== '' && !/^\d{15}$/.test(ice)) issues.push({ field: 'legal.ice' })
   }
   if (step === STEP_USERS) {
     const pins = new Map<string, number>()

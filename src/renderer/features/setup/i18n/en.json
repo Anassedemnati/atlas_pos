@@ -95,7 +95,7 @@
     },
     "company": {
       "title": "Company details",
-      "lead": "These legal details will appear on all your receipts.",
+      "lead": "Only the trade name is required. The legal details (company name, ICE, IF, RC, patente…) are optional: the ones you fill in will appear on your receipts.",
       "raisonSociale": "Company name",
       "nomCommercial": "Trade name",
       "adresse": "Address",

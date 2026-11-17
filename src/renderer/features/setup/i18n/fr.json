@@ -95,7 +95,7 @@
     },
     "company": {
       "title": "Informations de l'entreprise",
-      "lead": "Ces informations légales figureront sur tous vos tickets.",
+      "lead": "Seul le nom commercial est obligatoire. Les informations légales (raison sociale, ICE, IF, RC, patente…) sont facultatives : celles que vous remplissez figureront sur vos tickets.",
       "raisonSociale": "Raison sociale",
       "nomCommercial": "Nom commercial",
       "adresse": "Adresse",
