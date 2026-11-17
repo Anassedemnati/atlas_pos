@@ -14,7 +14,7 @@ export type Business = 'restaurant' | 'cafe' | 'bakery' | 'retail'
 
 const MODULES: Record<Business, Record<string, boolean>> = {
   restaurant: { tables: true, kitchen: true, menus: true, customers: true, stock: false, barcode: false, scale: false },
-  cafe: { tables: false, kitchen: true, menus: true, customers: false, stock: false, barcode: false, scale: false },
+  cafe: { tables: true, kitchen: true, menus: true, customers: false, stock: false, barcode: false, scale: false },
   bakery: { tables: false, kitchen: false, menus: false, customers: false, stock: false, barcode: false, scale: false },
   retail: { tables: false, kitchen: false, menus: false, customers: false, stock: true, barcode: true, scale: false }
 }

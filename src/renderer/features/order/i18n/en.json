@@ -32,6 +32,7 @@
     "nextCourse": "Send the next course",
     "prebill": "Pre-bill",
     "prebillPrinted": "Pre-bill printed",
+    "prebillParked": "Pre-bill printed, order waiting for payment",
     "split": "Split",
     "splitHint": "Tick what this guest pays.",
     "splitAll": "To pay everything, use Pay.",

@@ -32,6 +32,7 @@
     "nextCourse": "Envoyer le service suivant",
     "prebill": "Addition",
     "prebillPrinted": "Addition imprimée",
+    "prebillParked": "Addition imprimée, commande en attente de paiement",
     "split": "Diviser",
     "splitHint": "Cochez ce que ce client paie.",
     "splitAll": "Pour tout payer, utilisez Encaisser.",

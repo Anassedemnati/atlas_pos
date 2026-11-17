@@ -198,7 +198,7 @@ test.describe.serial('restaurant till', () => {
   })
 })
 
-test.describe('café counter', () => {
+test.describe('café: served at the table or the counter, paid when leaving', () => {
   let till: Till
   test.beforeAll(async () => {
     till = await startTill('cafe')
@@ -208,11 +208,56 @@ test.describe('café counter', () => {
     till?.cleanup()
   })
 
-  test('two takeaway orders get the numbers 1 and 2 on their tickets', async () => {
+  test('the waiter serves table 1, prints its addition, and the customer pays when leaving', async () => {
+    const { page } = till
+    await login(page, 'Youssef')
+    await expect(page.getByTestId('floor-canvas')).toBeVisible()
+    await page.getByTestId('table-1').click()
+    await page.getByTestId('covers-2').click()
+    await openCategory(page, 'Jus et boissons fraîches')
+    await addProduct(page, 'Zaazaa')
+    await page.getByTestId('send-kitchen').click()
+    await waitForPrint(till.printsDir, 'bar', 'Zaazaa')
+    await page.getByTestId('prebill').click()
+    await waitForPrint(till.printsDir, 'caisse', 'ADDITION')
+    await page.getByTestId('back-home').click()
+    await expect(page.getByTestId('table-1')).toHaveAttribute('data-state', 'bill')
+    await page.getByTestId('table-1').click()
+    await page.getByTestId('pay').click()
+    await page.getByTestId('method-cash').click()
+    await page.getByTestId('quick-exact').click()
+    await page.getByTestId('pay-validate').click()
+    await expect(page.getByTestId('table-1')).toHaveAttribute('data-state', 'free')
+    await logout(page)
+  })
+
+  test('a counter order prints its addition, waits in the parked list, and is paid later', async () => {
+    const { page } = till
+    await login(page, 'Youssef')
+    await page.getByTestId('direct-sale').click()
+    await openCategory(page, 'Jus et boissons fraîches')
+    await addProduct(page, 'Lben')
+    await page.getByTestId('prebill').click()
+    await waitForPrint(till.printsDir, 'caisse', 'ADDITION')
+    await expect(page.getByTestId('floor-canvas')).toBeVisible()
+    await page.getByTestId('direct-sale').click()
+    await page.getByTestId('open-parked').click()
+    await page.getByTestId('parked-orders').getByRole('button').first().click()
+    await page.getByTestId('pay').click()
+    await page.getByTestId('method-cash').click()
+    await page.getByTestId('quick-exact').click()
+    await page.getByTestId('pay-validate').click()
+    await expect(page.getByTestId('floor-canvas')).toBeVisible()
+    await logout(page)
+  })
+
+  test('two takeaway orders get the numbers 2 and 3 on their tickets', async () => {
     const { page } = till
     await login(page, 'Karim')
-    await expect(page.getByTestId('order-pad')).toBeVisible()
-    for (const expected of [1, 2]) {
+    // The counter order above took number 1.
+    for (const expected of [2, 3]) {
+      await page.getByTestId('direct-sale').click()
+      await expect(page.getByTestId('order-pad')).toBeVisible()
       await page.getByRole('tab', { name: 'À emporter', exact: true }).click()
       await openCategory(page, 'Viennoiseries')
       await page.getByTestId('product-grid').getByRole('button').first().click()
@@ -223,8 +268,8 @@ test.describe('café counter', () => {
       await page.getByTestId('method-cash').click()
       await page.getByTestId('quick-exact').click()
       await page.getByTestId('pay-validate').click()
-      await expect(page.getByTestId('order-pad')).toBeVisible()
+      await expect(page.getByTestId('floor-canvas')).toBeVisible()
     }
-    await waitForPrint(till.printsDir, 'caisse', '000002')
+    await waitForPrint(till.printsDir, 'caisse', '000004')
   })
 })

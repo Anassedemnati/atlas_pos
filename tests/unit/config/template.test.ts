@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { PERMISSIONS } from '@shared/permissions'
 import { defaultOf } from '../../../src/main/domain/config/settings-registry'
@@ -59,9 +61,9 @@ describe('business templates', () => {
         scale: false
       })
     })
-    it('cafe: kitchen and menus', () => {
+    it('cafe: tables (served at the table, paid when leaving), kitchen and menus', () => {
       expect(loadTemplate('cafe').modules).toEqual({
-        tables: false,
+        tables: true,
         kitchen: true,
         menus: true,
         customers: false,
@@ -117,10 +119,22 @@ describe('business templates', () => {
       for (const c of t.categories) expect(c.color).toMatch(/^#[0-9A-Fa-f]{6}$/)
     })
 
-    it('marks about 12 best sellers for illustration', () => {
+    it('marks about 12 best sellers for illustration (the café: its whole menu)', () => {
       const images = t.products.filter((p) => p.image)
+      if (id === 'cafe') {
+        expect(images.length).toBe(t.products.length)
+        return
+      }
       expect(images.length).toBeGreaterThanOrEqual(10)
       expect(images.length).toBeLessThanOrEqual(14)
+    })
+
+    it('ships a picture and its provenance for every illustrated product', () => {
+      const dir = join(process.cwd(), 'resources', 'templates', 'media', id)
+      for (const p of t.products.filter((x) => x.image)) {
+        expect(existsSync(join(dir, `${p.code}.webp`)), p.code).toBe(true)
+        expect(existsSync(join(dir, `${p.code}.webp.json`)), p.code).toBe(true)
+      }
     })
 
     it('has every reference resolved', () => {
@@ -258,9 +272,11 @@ describe('business templates', () => {
       for (const word of ['Café', 'Thé', 'Jus', 'Viennoiseries', 'Sandwich']) expect(names).toContain(word)
       expect(t.products.every((p) => p.vat_bp === 1000)).toBe(true)
     })
-    it('has a breakfast formula as a set menu', () => {
-      expect(t.menus).toHaveLength(1)
+    it('has two breakfast formulas as set menus: the café one and the Moroccan one', () => {
+      expect(t.menus).toHaveLength(2)
       expect(t.products.find((p) => p.code === t.menus[0]!.product)?.name.fr).toBe('Formule petit-déjeuner')
+      expect(t.products.find((p) => p.code === t.menus[1]!.product)?.name.fr).toBe('Petit-déjeuner marocain')
+      expect(t.menus[1]!.courses.map((c) => c.choose_count)).toEqual([1, 1, 2, 1])
     })
     it('keeps the Moroccan pancakes and flatbreads out of the viennoiseries', () => {
       const category = (code: string): string => t.products.find((p) => p.code === code)!.category

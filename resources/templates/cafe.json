@@ -1,8 +1,8 @@
 {
   "id": "cafe",
-  "version": 1,
+  "version": 2,
   "modules": {
-    "tables": false,
+    "tables": true,
     "kitchen": true,
     "menus": true,
     "customers": false,
@@ -12,7 +12,8 @@
   },
   "settings": {
     "day.cutoverHour": 5,
-    "till.autoLockSeconds": 120
+    "till.autoLockSeconds": 120,
+    "ui.keyStyle": "photo"
   },
   "paymentMethods": [
     {"code":"cash","name":{"fr":"Espèces","ar":"نقدا","en":"Cash"},"opens_drawer":true,"active":true},
@@ -35,66 +36,367 @@
     {"code":"formules","name":{"fr":"Formules","ar":"العروض","en":"Formulas"},"color":"#14213D"}
   ],
   "products": [
-    {"code":"cafe-noir","category":"cafes","name":{"fr":"Café noir","ar":"قهوة سوداء","en":"Black coffee"},"price_cents":1000,"vat_bp":1000,"modifier_groups":["sucre"],"image":true},
-    {"code":"cafe-creme","category":"cafes","name":{"fr":"Café crème","ar":"قهوة بالحليب","en":"Coffee with milk"},"price_cents":1200,"vat_bp":1000,"modifier_groups":["sucre"]},
-    {"code":"nous-nous","category":"cafes","name":{"fr":"Nous-nous","ar":"نص نص","en":"Half coffee, half milk"},"price_cents":1300,"vat_bp":1000,"modifier_groups":["sucre"],"image":true},
-    {"code":"cappuccino","category":"cafes","name":{"fr":"Cappuccino","ar":"كابتشينو","en":"Cappuccino"},"price_cents":1600,"vat_bp":1000,"modifier_groups":["sucre"],"image":true},
-    {"code":"cafe-latte","category":"cafes","name":{"fr":"Café latte","ar":"لاتيه","en":"Latte"},"price_cents":1800,"vat_bp":1000,"modifier_groups":["sucre"]},
-    {"code":"chocolat-chaud","category":"cafes","name":{"fr":"Chocolat chaud","ar":"شوكولاتة ساخنة","en":"Hot chocolate"},"price_cents":1800,"vat_bp":1000},
-    {"code":"cafe-glace","category":"cafes","name":{"fr":"Café glacé","ar":"قهوة مثلجة","en":"Iced coffee"},"price_cents":2000,"vat_bp":1000},
-    {"code":"the-menthe","category":"thes","name":{"fr":"Thé à la menthe","ar":"أتاي بالنعناع","en":"Mint tea"},"price_cents":1200,"vat_bp":1000,"modifier_groups":["sucre"],"image":true},
-    {"code":"the-menthe-grand","category":"thes","name":{"fr":"Thé à la menthe (grande théière)","ar":"أتاي بالنعناع (إبريق كبير)","en":"Mint tea (large pot)"},"price_cents":2000,"vat_bp":1000,"modifier_groups":["sucre"]},
-    {"code":"verveine","category":"thes","name":{"fr":"Verveine (louiza)","ar":"لويزة","en":"Lemon verbena tea"},"price_cents":1200,"vat_bp":1000,"modifier_groups":["sucre"]},
-    {"code":"camomille","category":"thes","name":{"fr":"Camomille","ar":"بابونج","en":"Chamomile tea"},"price_cents":1200,"vat_bp":1000,"modifier_groups":["sucre"]},
-    {"code":"jus-orange","category":"jus-boissons","name":{"fr":"Jus d'orange pressé","ar":"عصير البرتقال الطبيعي","en":"Fresh orange juice"},"price_cents":1500,"vat_bp":1000,"image":true},
-    {"code":"jus-avocat","category":"jus-boissons","name":{"fr":"Jus d'avocat","ar":"عصير الأفوكادو","en":"Avocado juice"},"price_cents":2000,"vat_bp":1000,"image":true},
-    {"code":"jus-banane","category":"jus-boissons","name":{"fr":"Jus de banane","ar":"عصير الموز","en":"Banana juice"},"price_cents":1800,"vat_bp":1000},
-    {"code":"cocktail-fruits","category":"jus-boissons","name":{"fr":"Cocktail de fruits","ar":"كوكتيل فواكه","en":"Fruit cocktail"},"price_cents":2200,"vat_bp":1000},
-    {"code":"citronnade","category":"jus-boissons","name":{"fr":"Citronnade","ar":"ليموناضة","en":"Lemonade"},"price_cents":1500,"vat_bp":1000},
-    {"code":"eau-50cl","category":"jus-boissons","name":{"fr":"Eau minérale 50 cl","ar":"ماء معدني 50 cl","en":"Mineral water 50 cl"},"price_cents":700,"vat_bp":1000},
-    {"code":"soda","category":"jus-boissons","name":{"fr":"Soda 33 cl","ar":"مشروب غازي 33 cl","en":"Soft drink 33 cl"},"price_cents":1200,"vat_bp":1000},
-    {"code":"lben","category":"jus-boissons","name":{"fr":"Lben","ar":"لبن","en":"Lben (buttermilk)"},"price_cents":1000,"vat_bp":1000},
+    {"code":"cafe-noir","category":"cafes","name":{"fr":"Café noir","ar":"قهوة سوداء","en":"Black coffee"},"price_cents":1000,"vat_bp":1000,"modifier_groups":["sucre","cafe-options"],"image":true},
+    {"code":"cafe-noir-double","category":"cafes","name":{"fr":"Café noir double","ar":"قهوة سوداء مزدوجة","en":"Double black coffee"},"price_cents":1500,"vat_bp":1000,"modifier_groups":["sucre","cafe-options"],"image":true},
+    {"code":"cafe-casse","category":"cafes","name":{"fr":"Café cassé","ar":"قهوة كاسي","en":"Coffee with a dash of milk"},"price_cents":1100,"vat_bp":1000,"modifier_groups":["sucre","cafe-options"],"image":true},
+    {"code":"cafe-creme","category":"cafes","name":{"fr":"Café crème","ar":"قهوة بالحليب","en":"Coffee with milk"},"price_cents":1200,"vat_bp":1000,"modifier_groups":["sucre","cafe-options"],"image":true},
+    {"code":"nous-nous","category":"cafes","name":{"fr":"Nous-nous","ar":"نص نص","en":"Half coffee, half milk"},"price_cents":1300,"vat_bp":1000,"modifier_groups":["sucre","cafe-options"],"image":true},
+    {"code":"cappuccino","category":"cafes","name":{"fr":"Cappuccino","ar":"كابتشينو","en":"Cappuccino"},"price_cents":1600,"vat_bp":1000,"modifier_groups":["sucre","cafe-options"],"image":true},
+    {"code":"cafe-latte","category":"cafes","name":{"fr":"Café latte","ar":"لاتيه","en":"Latte"},"price_cents":1800,"vat_bp":1000,"modifier_groups":["sucre","cafe-options"],"image":true},
+    {"code":"cafe-americain","category":"cafes","name":{"fr":"Café américain","ar":"قهوة أمريكية","en":"Americano"},"price_cents":1500,"vat_bp":1000,"modifier_groups":["sucre","cafe-options"],"image":true},
+    {"code":"cafe-epices","category":"cafes","name":{"fr":"Café aux épices","ar":"قهوة بالتوابل","en":"Spiced coffee"},"price_cents":1500,"vat_bp":1000,"modifier_groups":["sucre"],"image":true},
+    {"code":"chocolat-chaud","category":"cafes","name":{"fr":"Chocolat chaud","ar":"شوكولاتة ساخنة","en":"Hot chocolate"},"price_cents":1800,"vat_bp":1000,"image":true},
+    {"code":"lait-chaud","category":"cafes","name":{"fr":"Lait chaud","ar":"حليب ساخن","en":"Hot milk"},"price_cents":800,"vat_bp":1000,"modifier_groups":["sucre"],"image":true},
+    {"code":"cafe-glace","category":"cafes","name":{"fr":"Café glacé","ar":"قهوة مثلجة","en":"Iced coffee"},"price_cents":2000,"vat_bp":1000,"modifier_groups":["sucre"],"image":true},
+    {"code":"the-menthe","category":"thes","name":{"fr":"Thé à la menthe","ar":"أتاي بالنعناع","en":"Mint tea"},"price_cents":1200,"vat_bp":1000,"modifier_groups":["sucre","the-herbes"],"image":true},
+    {"code":"the-menthe-theiere","category":"thes","name":{"fr":"Thé à la menthe (petite théière)","ar":"أتاي بالنعناع (براد صغير)","en":"Mint tea (small teapot)"},"price_cents":1500,"vat_bp":1000,"modifier_groups":["sucre","the-herbes"],"image":true},
+    {"code":"the-menthe-grand","category":"thes","name":{"fr":"Thé à la menthe (grande théière)","ar":"أتاي بالنعناع (إبريق كبير)","en":"Mint tea (large pot)"},"price_cents":2000,"vat_bp":1000,"modifier_groups":["sucre","the-herbes"],"image":true},
+    {"code":"the-chiba","category":"thes","name":{"fr":"Thé à la chiba","ar":"أتاي بالشيبة","en":"Tea with absinthe"},"price_cents":1300,"vat_bp":1000,"modifier_groups":["sucre"],"image":true},
+    {"code":"the-noir","category":"thes","name":{"fr":"Thé noir nature","ar":"أتاي بلا نعناع","en":"Plain black tea"},"price_cents":1000,"vat_bp":1000,"modifier_groups":["sucre"],"image":true},
+    {"code":"verveine","category":"thes","name":{"fr":"Verveine (louiza)","ar":"لويزة","en":"Lemon verbena tea"},"price_cents":1200,"vat_bp":1000,"modifier_groups":["sucre"],"image":true},
+    {"code":"camomille","category":"thes","name":{"fr":"Camomille","ar":"بابونج","en":"Chamomile tea"},"price_cents":1200,"vat_bp":1000,"modifier_groups":["sucre"],"image":true},
+    {"code":"infusion-zaatar","category":"thes","name":{"fr":"Infusion au zaatar","ar":"منقوع الزعتر","en":"Thyme infusion"},"price_cents":1200,"vat_bp":1000,"modifier_groups":["sucre"],"image":true},
+    {"code":"infusion-gingembre","category":"thes","name":{"fr":"Infusion gingembre-citron","ar":"منقوع الزنجبيل والليمون","en":"Ginger and lemon infusion"},"price_cents":1500,"vat_bp":1000,"modifier_groups":["sucre"],"image":true},
+    {"code":"jus-orange","category":"jus-boissons","name":{"fr":"Jus d'orange pressé","ar":"عصير البرتقال الطبيعي","en":"Fresh orange juice"},"price_cents":1500,"vat_bp":1000,"image":true,"modifier_groups":["jus-options"]},
+    {"code":"jus-avocat","category":"jus-boissons","name":{"fr":"Jus d'avocat","ar":"عصير الأفوكادو","en":"Avocado juice"},"price_cents":2000,"vat_bp":1000,"image":true,"modifier_groups":["jus-options"]},
+    {"code":"jus-avocat-fruits-secs","category":"jus-boissons","name":{"fr":"Jus d'avocat aux fruits secs","ar":"عصير الأفوكادو بالفواكه الجافة","en":"Avocado juice with nuts"},"price_cents":2500,"vat_bp":1000,"modifier_groups":["jus-options"],"image":true},
+    {"code":"zaazaa","category":"jus-boissons","name":{"fr":"Zaazaa","ar":"زعزع","en":"Zaazaa (layered avocado, banana and nuts)"},"price_cents":3000,"vat_bp":1000,"image":true},
+    {"code":"lait-amande","category":"jus-boissons","name":{"fr":"Lait d'amande","ar":"حليب اللوز","en":"Almond milk"},"price_cents":2000,"vat_bp":1000,"modifier_groups":["jus-options"],"image":true},
+    {"code":"jus-banane","category":"jus-boissons","name":{"fr":"Jus de banane","ar":"عصير الموز","en":"Banana juice"},"price_cents":1800,"vat_bp":1000,"modifier_groups":["jus-options"],"image":true},
+    {"code":"cocktail-fruits","category":"jus-boissons","name":{"fr":"Cocktail de fruits","ar":"كوكتيل فواكه","en":"Fruit cocktail"},"price_cents":2200,"vat_bp":1000,"modifier_groups":["jus-options"],"image":true},
+    {"code":"panache","category":"jus-boissons","name":{"fr":"Panaché","ar":"باناشي","en":"Mixed fruit smoothie"},"price_cents":2000,"vat_bp":1000,"modifier_groups":["jus-options"],"image":true},
+    {"code":"jus-fraise","category":"jus-boissons","name":{"fr":"Jus de fraise","ar":"عصير الفراولة","en":"Strawberry juice"},"price_cents":1800,"vat_bp":1000,"modifier_groups":["jus-options"],"image":true},
+    {"code":"jus-pomme","category":"jus-boissons","name":{"fr":"Jus de pomme","ar":"عصير التفاح","en":"Apple juice"},"price_cents":1800,"vat_bp":1000,"modifier_groups":["jus-options"],"image":true},
+    {"code":"jus-carotte-orange","category":"jus-boissons","name":{"fr":"Jus carotte-orange","ar":"عصير الجزر والبرتقال","en":"Carrot and orange juice"},"price_cents":1800,"vat_bp":1000,"modifier_groups":["jus-options"],"image":true},
+    {"code":"milkshake-chocolat","category":"jus-boissons","name":{"fr":"Milkshake chocolat","ar":"ميلك شيك شوكولاتة","en":"Chocolate milkshake"},"price_cents":2500,"vat_bp":1000,"image":true},
+    {"code":"milkshake-fraise","category":"jus-boissons","name":{"fr":"Milkshake fraise","ar":"ميلك شيك فراولة","en":"Strawberry milkshake"},"price_cents":2500,"vat_bp":1000,"image":true},
+    {"code":"citronnade","category":"jus-boissons","name":{"fr":"Citronnade","ar":"ليموناضة","en":"Lemonade"},"price_cents":1500,"vat_bp":1000,"modifier_groups":["jus-options"],"image":true},
+    {"code":"mojito-virgin","category":"jus-boissons","name":{"fr":"Mojito sans alcool","ar":"موخيتو بدون كحول","en":"Virgin mojito"},"price_cents":2500,"vat_bp":1000,"image":true},
+    {"code":"eau-50cl","category":"jus-boissons","name":{"fr":"Eau minérale 50 cl","ar":"ماء معدني 50 cl","en":"Mineral water 50 cl"},"price_cents":700,"vat_bp":1000,"image":true},
+    {"code":"eau-gazeuse","category":"jus-boissons","name":{"fr":"Eau gazeuse 33 cl","ar":"ماء غازي 33 cl","en":"Sparkling water 33 cl"},"price_cents":1000,"vat_bp":1000,"image":true},
+    {"code":"eau-1l5","category":"jus-boissons","name":{"fr":"Eau minérale 1,5 L","ar":"ماء معدني 1.5 L","en":"Mineral water 1.5 L"},"price_cents":1200,"vat_bp":1000,"image":true},
+    {"code":"soda","category":"jus-boissons","name":{"fr":"Soda 33 cl","ar":"مشروب غازي 33 cl","en":"Soft drink 33 cl"},"price_cents":1200,"vat_bp":1000,"image":true},
+    {"code":"lben","category":"jus-boissons","name":{"fr":"Lben","ar":"لبن","en":"Lben (buttermilk)"},"price_cents":1000,"vat_bp":1000,"image":true},
+    {"code":"raib","category":"jus-boissons","name":{"fr":"Raïbi","ar":"رايبي","en":"Drinking yogurt"},"price_cents":800,"vat_bp":1000,"image":true},
     {"code":"croissant","category":"viennoiseries","name":{"fr":"Croissant","ar":"كرواسون","en":"Croissant"},"price_cents":400,"vat_bp":1000,"image":true},
     {"code":"pain-chocolat","category":"viennoiseries","name":{"fr":"Pain au chocolat","ar":"خبز بالشوكولاتة","en":"Pain au chocolat"},"price_cents":500,"vat_bp":1000,"image":true},
-    {"code":"pain-raisins","category":"viennoiseries","name":{"fr":"Pain aux raisins","ar":"خبز بالزبيب","en":"Raisin swirl"},"price_cents":500,"vat_bp":1000},
-    {"code":"brioche","category":"viennoiseries","name":{"fr":"Brioche","ar":"بريوش","en":"Brioche"},"price_cents":400,"vat_bp":1000},
-    {"code":"msemen","category":"crepes-galettes","name":{"fr":"Msemen","ar":"مسمن","en":"Msemen (flaky flatbread)"},"price_cents":300,"vat_bp":1000,"image":true},
-    {"code":"baghrir","category":"crepes-galettes","name":{"fr":"Baghrir","ar":"بغرير","en":"Baghrir (semolina pancake)"},"price_cents":400,"vat_bp":1000},
-    {"code":"harcha","category":"crepes-galettes","name":{"fr":"Harcha","ar":"حرشة","en":"Harcha (semolina flatbread)"},"price_cents":400,"vat_bp":1000},
+    {"code":"pain-raisins","category":"viennoiseries","name":{"fr":"Pain aux raisins","ar":"خبز بالزبيب","en":"Raisin swirl"},"price_cents":500,"vat_bp":1000,"image":true},
+    {"code":"brioche","category":"viennoiseries","name":{"fr":"Brioche","ar":"بريوش","en":"Brioche"},"price_cents":400,"vat_bp":1000,"image":true},
+    {"code":"msemen","category":"crepes-galettes","name":{"fr":"Msemen","ar":"مسمن","en":"Msemen (flaky flatbread)"},"price_cents":300,"vat_bp":1000,"image":true,"modifier_groups":["garniture"]},
+    {"code":"msemen-farci","category":"crepes-galettes","name":{"fr":"Msemen farci (khlii)","ar":"مسمن معمر بالخليع","en":"Stuffed msemen with khlii"},"price_cents":1000,"vat_bp":1000,"image":true},
+    {"code":"baghrir","category":"crepes-galettes","name":{"fr":"Baghrir","ar":"بغرير","en":"Baghrir (semolina pancake)"},"price_cents":400,"vat_bp":1000,"modifier_groups":["garniture"],"image":true},
+    {"code":"harcha","category":"crepes-galettes","name":{"fr":"Harcha","ar":"حرشة","en":"Harcha (semolina flatbread)"},"price_cents":400,"vat_bp":1000,"modifier_groups":["garniture"],"image":true},
+    {"code":"batbout","category":"crepes-galettes","name":{"fr":"Batbout","ar":"بطبوط","en":"Batbout (Moroccan pita)"},"price_cents":500,"vat_bp":1000,"modifier_groups":["garniture"],"image":true},
+    {"code":"assiette-beldi","category":"crepes-galettes","name":{"fr":"Assiette beldi (huile, miel, amlou)","ar":"طبسيل بلدي (زيت، عسل، أملو)","en":"Olive oil, honey and amlou plate"},"price_cents":2000,"vat_bp":1000,"image":true},
     {"code":"sandwich-poulet","category":"sandwichs","name":{"fr":"Sandwich poulet","ar":"ساندويتش الدجاج","en":"Chicken sandwich"},"price_cents":2500,"vat_bp":1000,"modifier_groups":["sans"],"image":true},
-    {"code":"sandwich-thon","category":"sandwichs","name":{"fr":"Sandwich thon","ar":"ساندويتش التونة","en":"Tuna sandwich"},"price_cents":2200,"vat_bp":1000,"modifier_groups":["sans"]},
-    {"code":"panini-poulet-fromage","category":"sandwichs","name":{"fr":"Panini poulet fromage","ar":"بانيني دجاج وجبن","en":"Chicken and cheese panini"},"price_cents":2800,"vat_bp":1000,"modifier_groups":["sans"]},
-    {"code":"croque-monsieur","category":"sandwichs","name":{"fr":"Croque-monsieur","ar":"كروك موسيو","en":"Croque-monsieur"},"price_cents":2400,"vat_bp":1000,"modifier_groups":["sans"]},
+    {"code":"sandwich-thon","category":"sandwichs","name":{"fr":"Sandwich thon","ar":"ساندويتش التونة","en":"Tuna sandwich"},"price_cents":2200,"vat_bp":1000,"modifier_groups":["sans"],"image":true},
+    {"code":"sandwich-kefta","category":"sandwichs","name":{"fr":"Sandwich kefta","ar":"ساندويتش الكفتة","en":"Kefta sandwich"},"price_cents":2500,"vat_bp":1000,"modifier_groups":["sans"],"image":true},
+    {"code":"panini-poulet-fromage","category":"sandwichs","name":{"fr":"Panini poulet fromage","ar":"بانيني دجاج وجبن","en":"Chicken and cheese panini"},"price_cents":2800,"vat_bp":1000,"modifier_groups":["sans"],"image":true},
+    {"code":"croque-monsieur","category":"sandwichs","name":{"fr":"Croque-monsieur","ar":"كروك موسيو","en":"Croque-monsieur"},"price_cents":2400,"vat_bp":1000,"modifier_groups":["sans"],"image":true},
     {"code":"hamburger","category":"sandwichs","name":{"fr":"Hamburger","ar":"هامبورغر","en":"Hamburger"},"price_cents":3000,"vat_bp":1000,"modifier_groups":["sans"],"image":true},
-    {"code":"omelette-fromage","category":"sandwichs","name":{"fr":"Omelette au fromage","ar":"عجة بالجبن","en":"Cheese omelette"},"price_cents":1800,"vat_bp":1000},
-    {"code":"crepe-chocolat","category":"desserts","name":{"fr":"Crêpe au chocolat","ar":"كريب بالشوكولاتة","en":"Chocolate crêpe"},"price_cents":2000,"vat_bp":1000},
+    {"code":"tacos-poulet","category":"sandwichs","name":{"fr":"Tacos poulet","ar":"طاكوس الدجاج","en":"Chicken tacos"},"price_cents":3500,"vat_bp":1000,"modifier_groups":["sans"],"image":true},
+    {"code":"omelette-fromage","category":"sandwichs","name":{"fr":"Omelette au fromage","ar":"عجة بالجبن","en":"Cheese omelette"},"price_cents":1800,"vat_bp":1000,"image":true},
+    {"code":"oeufs-khlii","category":"sandwichs","name":{"fr":"Œufs au khlii","ar":"بيض بالخليع","en":"Eggs with khlii"},"price_cents":3000,"vat_bp":1000,"image":true},
+    {"code":"bissara","category":"sandwichs","name":{"fr":"Bissara","ar":"بيصارة","en":"Fava bean soup"},"price_cents":1500,"vat_bp":1000,"image":true},
+    {"code":"crepe-chocolat","category":"desserts","name":{"fr":"Crêpe au chocolat","ar":"كريب بالشوكولاتة","en":"Chocolate crêpe"},"price_cents":2000,"vat_bp":1000,"image":true},
+    {"code":"crepe-nutella-banane","category":"desserts","name":{"fr":"Crêpe chocolat-banane","ar":"كريب بالشوكولاتة والموز","en":"Chocolate and banana crêpe"},"price_cents":2500,"vat_bp":1000,"image":true},
     {"code":"gaufre-chocolat","category":"desserts","name":{"fr":"Gaufre au chocolat","ar":"وافل بالشوكولاتة","en":"Chocolate waffle"},"price_cents":2200,"vat_bp":1000,"image":true},
-    {"code":"cake","category":"desserts","name":{"fr":"Cake (part)","ar":"كيك (قطعة)","en":"Cake (slice)"},"price_cents":1200,"vat_bp":1000},
-    {"code":"glace-2-boules","category":"desserts","name":{"fr":"Glace 2 boules","ar":"مثلجات (كرتان)","en":"Ice cream, 2 scoops"},"price_cents":2000,"vat_bp":1000},
-    {"code":"formule-petit-dejeuner","category":"formules","name":{"fr":"Formule petit-déjeuner","ar":"وجبة الفطور","en":"Breakfast formula"},"price_cents":3500,"vat_bp":1000}
+    {"code":"cake","category":"desserts","name":{"fr":"Cake (part)","ar":"كيك (قطعة)","en":"Cake (slice)"},"price_cents":1200,"vat_bp":1000,"image":true},
+    {"code":"glace-2-boules","category":"desserts","name":{"fr":"Glace 2 boules","ar":"مثلجات (كرتان)","en":"Ice cream, 2 scoops"},"price_cents":2000,"vat_bp":1000,"image":true},
+    {"code":"salade-fruits","category":"desserts","name":{"fr":"Salade de fruits","ar":"سلطة الفواكه","en":"Fruit salad"},"price_cents":2000,"vat_bp":1000,"image":true},
+    {"code":"formule-petit-dejeuner","category":"formules","name":{"fr":"Formule petit-déjeuner","ar":"وجبة الفطور","en":"Breakfast formula"},"price_cents":3500,"vat_bp":1000,"image":true},
+    {"code":"petit-dejeuner-beldi","category":"formules","name":{"fr":"Petit-déjeuner marocain","ar":"فطور مغربي","en":"Moroccan breakfast"},"price_cents":5000,"vat_bp":1000,"image":true}
   ],
   "modifierGroups": [
     {
       "code": "sucre",
-      "name": {"fr":"Sucre","ar":"السكر","en":"Sugar"},
+      "name": {
+        "fr": "Sucre",
+        "ar": "السكر",
+        "en": "Sugar"
+      },
       "min_select": 0,
       "max_select": 1,
       "modifiers": [
-        {"name":{"fr":"Sans sucre","ar":"بدون سكر","en":"No sugar"}},
-        {"name":{"fr":"Peu de sucre","ar":"سكر قليل","en":"Little sugar"}},
-        {"name":{"fr":"Sucre à part","ar":"سكر على حدة","en":"Sugar on the side"}}
+        {
+          "name": {
+            "fr": "Sans sucre",
+            "ar": "بدون سكر",
+            "en": "No sugar"
+          }
+        },
+        {
+          "name": {
+            "fr": "Peu de sucre",
+            "ar": "سكر قليل",
+            "en": "Little sugar"
+          }
+        },
+        {
+          "name": {
+            "fr": "Sucre à part",
+            "ar": "سكر على حدة",
+            "en": "Sugar on the side"
+          }
+        }
       ]
     },
     {
       "code": "sans",
-      "name": {"fr":"Sans…","ar":"بدون…","en":"Without…"},
+      "name": {
+        "fr": "Sans…",
+        "ar": "بدون…",
+        "en": "Without…"
+      },
       "min_select": 0,
       "max_select": 4,
       "modifiers": [
-        {"name":{"fr":"Sans oignon","ar":"بدون بصل","en":"No onion"}},
-        {"name":{"fr":"Sans harissa","ar":"بدون هريسة","en":"No harissa"}},
-        {"name":{"fr":"Sans mayonnaise","ar":"بدون مايونيز","en":"No mayonnaise"}},
-        {"name":{"fr":"Sans cornichons","ar":"بدون مخلل","en":"No pickles"}}
+        {
+          "name": {
+            "fr": "Sans oignon",
+            "ar": "بدون بصل",
+            "en": "No onion"
+          }
+        },
+        {
+          "name": {
+            "fr": "Sans harissa",
+            "ar": "بدون هريسة",
+            "en": "No harissa"
+          }
+        },
+        {
+          "name": {
+            "fr": "Sans mayonnaise",
+            "ar": "بدون مايونيز",
+            "en": "No mayonnaise"
+          }
+        },
+        {
+          "name": {
+            "fr": "Sans cornichons",
+            "ar": "بدون مخلل",
+            "en": "No pickles"
+          }
+        }
+      ]
+    },
+    {
+      "code": "cafe-options",
+      "name": {
+        "fr": "Préparation",
+        "ar": "التحضير",
+        "en": "Preparation"
+      },
+      "min_select": 0,
+      "max_select": 3,
+      "modifiers": [
+        {
+          "name": {
+            "fr": "Serré",
+            "ar": "مركّزة",
+            "en": "Ristretto"
+          }
+        },
+        {
+          "name": {
+            "fr": "Allongé",
+            "ar": "خفيفة",
+            "en": "Long"
+          }
+        },
+        {
+          "name": {
+            "fr": "Décaféiné",
+            "ar": "بدون كافيين",
+            "en": "Decaf"
+          }
+        },
+        {
+          "name": {
+            "fr": "Lait à part",
+            "ar": "الحليب على حدة",
+            "en": "Milk on the side"
+          }
+        },
+        {
+          "name": {
+            "fr": "Lait froid",
+            "ar": "حليب بارد",
+            "en": "Cold milk"
+          }
+        },
+        {
+          "name": {
+            "fr": "Grande tasse",
+            "ar": "كأس كبير",
+            "en": "Large cup"
+          },
+          "price_delta_cents": 300
+        }
+      ]
+    },
+    {
+      "code": "the-herbes",
+      "name": {
+        "fr": "Herbes du thé",
+        "ar": "أعشاب الأتاي",
+        "en": "Tea herbs"
+      },
+      "min_select": 0,
+      "max_select": 3,
+      "modifiers": [
+        {
+          "name": {
+            "fr": "Avec chiba (absinthe)",
+            "ar": "بالشيبة",
+            "en": "With absinthe"
+          }
+        },
+        {
+          "name": {
+            "fr": "Avec louiza (verveine)",
+            "ar": "باللويزة",
+            "en": "With verbena"
+          }
+        },
+        {
+          "name": {
+            "fr": "Avec zaatar",
+            "ar": "بالزعتر",
+            "en": "With thyme"
+          }
+        },
+        {
+          "name": {
+            "fr": "Avec fleur d'oranger",
+            "ar": "بماء الزهر",
+            "en": "With orange blossom"
+          }
+        },
+        {
+          "name": {
+            "fr": "Thé léger",
+            "ar": "أتاي خفيف",
+            "en": "Light tea"
+          }
+        },
+        {
+          "name": {
+            "fr": "Sans menthe",
+            "ar": "بلا نعناع",
+            "en": "No mint"
+          }
+        }
+      ]
+    },
+    {
+      "code": "jus-options",
+      "name": {
+        "fr": "Options du jus",
+        "ar": "خيارات العصير",
+        "en": "Juice options"
+      },
+      "min_select": 0,
+      "max_select": 4,
+      "modifiers": [
+        {
+          "name": {
+            "fr": "Sans sucre",
+            "ar": "بدون سكر",
+            "en": "No sugar"
+          }
+        },
+        {
+          "name": {
+            "fr": "Sans glaçons",
+            "ar": "بدون ثلج",
+            "en": "No ice"
+          }
+        },
+        {
+          "name": {
+            "fr": "Avec lait",
+            "ar": "بالحليب",
+            "en": "With milk"
+          }
+        },
+        {
+          "name": {
+            "fr": "Fruits secs",
+            "ar": "بالفواكه الجافة",
+            "en": "With nuts"
+          },
+          "price_delta_cents": 500
+        },
+        {
+          "name": {
+            "fr": "Grand verre",
+            "ar": "كأس كبير",
+            "en": "Large glass"
+          },
+          "price_delta_cents": 500
+        }
+      ]
+    },
+    {
+      "code": "garniture",
+      "name": {
+        "fr": "Garniture",
+        "ar": "الحشوة",
+        "en": "Topping"
+      },
+      "min_select": 0,
+      "max_select": 3,
+      "modifiers": [
+        {
+          "name": {
+            "fr": "Miel",
+            "ar": "عسل",
+            "en": "Honey"
+          },
+          "price_delta_cents": 300
+        },
+        {
+          "name": {
+            "fr": "Beurre",
+            "ar": "زبدة",
+            "en": "Butter"
+          },
+          "price_delta_cents": 200
+        },
+        {
+          "name": {
+            "fr": "Fromage",
+            "ar": "جبن",
+            "en": "Cheese"
+          },
+          "price_delta_cents": 300
+        },
+        {
+          "name": {
+            "fr": "Amlou",
+            "ar": "أملو",
+            "en": "Amlou"
+          },
+          "price_delta_cents": 500
+        },
+        {
+          "name": {
+            "fr": "Chocolat",
+            "ar": "شوكولاتة",
+            "en": "Chocolate"
+          },
+          "price_delta_cents": 500
+        },
+        {
+          "name": {
+            "fr": "Huile d'olive",
+            "ar": "زيت الزيتون",
+            "en": "Olive oil"
+          },
+          "price_delta_cents": 200
+        }
       ]
     }
   ],
@@ -103,28 +405,219 @@
       "product": "formule-petit-dejeuner",
       "courses": [
         {
-          "name": {"fr":"Boisson chaude","ar":"مشروب ساخن","en":"Hot drink"},
+          "name": {
+            "fr": "Boisson chaude",
+            "ar": "مشروب ساخن",
+            "en": "Hot drink"
+          },
           "items": [
-            {"product":"cafe-noir"},
-            {"product":"cafe-creme"},
-            {"product":"nous-nous"},
-            {"product":"the-menthe"},
-            {"product":"verveine"}
+            {
+              "product": "cafe-noir"
+            },
+            {
+              "product": "cafe-creme"
+            },
+            {
+              "product": "nous-nous"
+            },
+            {
+              "product": "the-menthe"
+            },
+            {
+              "product": "verveine"
+            },
+            {
+              "product": "cafe-casse"
+            },
+            {
+              "product": "the-noir"
+            }
           ]
         },
         {
-          "name": {"fr":"Jus","ar":"عصير","en":"Juice"},
-          "items": [{"product":"jus-orange"},{"product":"jus-avocat","supplement_cents":500}]
+          "name": {
+            "fr": "Jus",
+            "ar": "عصير",
+            "en": "Juice"
+          },
+          "items": [
+            {
+              "product": "jus-orange"
+            },
+            {
+              "product": "jus-avocat",
+              "supplement_cents": 500
+            },
+            {
+              "product": "jus-pomme"
+            }
+          ]
         },
         {
-          "name": {"fr":"Viennoiserie ou crêpe","ar":"معجنات أو فطيرة","en":"Viennoiserie or pancake"},
-          "items": [{"product":"croissant"},{"product":"pain-chocolat"},{"product":"msemen"},{"product":"baghrir"}]
+          "name": {
+            "fr": "Viennoiserie ou crêpe",
+            "ar": "معجنات أو فطيرة",
+            "en": "Viennoiserie or pancake"
+          },
+          "items": [
+            {
+              "product": "croissant"
+            },
+            {
+              "product": "pain-chocolat"
+            },
+            {
+              "product": "msemen"
+            },
+            {
+              "product": "baghrir"
+            },
+            {
+              "product": "harcha"
+            },
+            {
+              "product": "batbout"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "product": "petit-dejeuner-beldi",
+      "courses": [
+        {
+          "name": {
+            "fr": "Boisson chaude",
+            "ar": "مشروب ساخن",
+            "en": "Hot drink"
+          },
+          "items": [
+            {
+              "product": "the-menthe"
+            },
+            {
+              "product": "the-chiba"
+            },
+            {
+              "product": "the-noir"
+            },
+            {
+              "product": "cafe-noir"
+            },
+            {
+              "product": "cafe-casse"
+            },
+            {
+              "product": "cafe-creme"
+            },
+            {
+              "product": "nous-nous"
+            }
+          ]
+        },
+        {
+          "name": {
+            "fr": "Jus",
+            "ar": "عصير",
+            "en": "Juice"
+          },
+          "items": [
+            {
+              "product": "jus-orange"
+            },
+            {
+              "product": "jus-pomme"
+            },
+            {
+              "product": "jus-carotte-orange"
+            },
+            {
+              "product": "jus-avocat",
+              "supplement_cents": 500
+            }
+          ]
+        },
+        {
+          "name": {
+            "fr": "Galettes",
+            "ar": "الفطائر",
+            "en": "Flatbreads"
+          },
+          "choose_count": 2,
+          "items": [
+            {
+              "product": "msemen"
+            },
+            {
+              "product": "baghrir"
+            },
+            {
+              "product": "harcha"
+            },
+            {
+              "product": "batbout"
+            },
+            {
+              "product": "msemen-farci",
+              "supplement_cents": 500
+            }
+          ]
+        },
+        {
+          "name": {
+            "fr": "Plat",
+            "ar": "الطبق",
+            "en": "Dish"
+          },
+          "items": [
+            {
+              "product": "assiette-beldi"
+            },
+            {
+              "product": "bissara"
+            },
+            {
+              "product": "omelette-fromage"
+            },
+            {
+              "product": "oeufs-khlii",
+              "supplement_cents": 1000
+            }
+          ]
         }
       ]
     }
   ],
-  "rooms": [],
-  "tables": [],
+  "rooms": [
+    {"code":"salle","name":{"fr":"Salle","ar":"القاعة","en":"Inside"}},
+    {"code":"terrasse","name":{"fr":"Terrasse","ar":"التراس","en":"Terrace"}}
+  ],
+  "tables": [
+    {"room":"salle","label":"1","shape":"round","x":40,"y":40,"w":110,"h":110,"seats":2},
+    {"room":"salle","label":"2","shape":"round","x":210,"y":40,"w":110,"h":110,"seats":2},
+    {"room":"salle","label":"3","shape":"round","x":380,"y":40,"w":110,"h":110,"seats":2},
+    {"room":"salle","label":"4","shape":"round","x":550,"y":40,"w":110,"h":110,"seats":2},
+    {"room":"salle","label":"5","shape":"round","x":720,"y":40,"w":110,"h":110,"seats":2},
+    {"room":"salle","label":"6","shape":"round","x":40,"y":230,"w":110,"h":110,"seats":2},
+    {"room":"salle","label":"7","shape":"round","x":210,"y":230,"w":110,"h":110,"seats":2},
+    {"room":"salle","label":"8","shape":"round","x":380,"y":230,"w":110,"h":110,"seats":2},
+    {"room":"salle","label":"9","shape":"round","x":550,"y":230,"w":110,"h":110,"seats":2},
+    {"room":"salle","label":"10","shape":"round","x":720,"y":230,"w":110,"h":110,"seats":2},
+    {"room":"salle","label":"11","shape":"rect","x":40,"y":420,"w":220,"h":110,"seats":6},
+    {"room":"salle","label":"12","shape":"rect","x":310,"y":420,"w":220,"h":110,"seats":6},
+    {"room":"terrasse","label":"T1","shape":"round","x":40,"y":40,"w":110,"h":110,"seats":4},
+    {"room":"terrasse","label":"T2","shape":"round","x":240,"y":40,"w":110,"h":110,"seats":2},
+    {"room":"terrasse","label":"T3","shape":"round","x":440,"y":40,"w":110,"h":110,"seats":4},
+    {"room":"terrasse","label":"T4","shape":"round","x":640,"y":40,"w":110,"h":110,"seats":2},
+    {"room":"terrasse","label":"T5","shape":"round","x":40,"y":210,"w":110,"h":110,"seats":4},
+    {"room":"terrasse","label":"T6","shape":"round","x":240,"y":210,"w":110,"h":110,"seats":2},
+    {"room":"terrasse","label":"T7","shape":"round","x":440,"y":210,"w":110,"h":110,"seats":4},
+    {"room":"terrasse","label":"T8","shape":"round","x":640,"y":210,"w":110,"h":110,"seats":2},
+    {"room":"terrasse","label":"T9","shape":"round","x":40,"y":380,"w":110,"h":110,"seats":4},
+    {"room":"terrasse","label":"T10","shape":"round","x":240,"y":380,"w":110,"h":110,"seats":2},
+    {"room":"terrasse","label":"T11","shape":"round","x":440,"y":380,"w":110,"h":110,"seats":4},
+    {"room":"terrasse","label":"T12","shape":"round","x":640,"y":380,"w":110,"h":110,"seats":2}
+  ],
   "printersRouting": {
     "cafes": "bar",
     "thes": "bar",

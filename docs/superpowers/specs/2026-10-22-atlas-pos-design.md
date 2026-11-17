@@ -305,7 +305,7 @@ Per business type:
 | Type | Screens |
 |---|---|
 | **Restaurant** | Floor plan with rooms as tabs (mockup 05); table states free / occupied (covers, elapsed, amount) / bill requested; open table → order pad; covers; transfer and merge tables; send to kitchen, send next course; set menus by course; takeaway and delivery tabs |
-| **Café / Snack** | Counter order pad by default; Sur place / Emporter toggle; **order number** printed on receipt and kitchen ticket; optional floor plan |
+| **Café / Snack** | Floor plan by default (Salle, Terrasse): the waiter serves at the table, the order goes to the bar/kitchen, the **addition** is printed and the customer **pays when leaving**. "Vente directe" opens the counter pad: Sur place / Emporter toggle, **order number** printed on receipt and kitchen ticket; on a counter order, "Addition" prints the bill and parks the order until it is paid |
 | **Bakery / Pastry** | Fast counter pad, large keys; weight items with **manual kg entry** × price/kg; no tables |
 | **Retail** | Barcode-first sale screen (scan adds a line, unknown barcode → quick-create by a manager); product search; stock levels shown; low-stock list |
 

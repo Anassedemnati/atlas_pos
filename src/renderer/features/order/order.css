@@ -228,31 +228,31 @@
   color: var(--amber-ink);
   font-weight: var(--fw-semibold);
 }
-.product-key--photo {
-  justify-content: flex-end;
-  min-block-size: 130px;
-  padding-block-start: 12px;
-  color: #fff;
+/* Photo keys: the whole picture (packshots on white), the name and price underneath it. The rows get a fixed
+   height: a key clips its overflow, so it would otherwise let the grid squeeze its rows and overlap the next one. */
+.product-grid:has(.product-key--photo) {
+  grid-auto-rows: 172px;
 }
-.product-key--photo::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(to top, rgb(20 33 61 / 85%), rgb(20 33 61 / 0%) 65%);
+.product-key--photo {
+  justify-content: flex-start;
+  gap: 2px;
+  min-block-size: 172px;
+  padding: 6px 10px 10px;
 }
 .product-key__image {
-  position: absolute;
-  inset: 0;
-  inline-size: 100%;
-  block-size: 100%;
-  object-fit: cover;
+  flex: none;
+  align-self: stretch;
+  block-size: 90px;
+  margin-block-end: 4px;
+  border-radius: calc(var(--radius-sm) - 2px);
+  background: #fff;
+  object-fit: contain;
 }
-.product-key--photo .product-key__name,
-.product-key--photo .product-key__price,
-.product-key--photo .product-key__stock {
-  position: relative;
-  z-index: 1;
-  color: #fff;
+.product-key--photo .product-key__name {
+  font-size: 16px;
+}
+.product-key--photo .product-key__price {
+  font-size: 17px;
 }
 .qtypad {
   flex: none;

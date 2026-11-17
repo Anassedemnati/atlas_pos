@@ -177,7 +177,15 @@ function OrderPad({ orderId, order, setOrder }: { orderId: string | null; order:
   const nextCourse = () => order && call(() => api.call('orders.sendNextCourse', { orderId: order.id }))
   const prebill = async () => {
     if (!order) return
-    if (await call(() => api.call('orders.printPrebill', { orderId: order.id }))) toast.success(t('order.prebillPrinted'))
+    if (!(await call(() => api.call('orders.printPrebill', { orderId: order.id })))) return
+    if (order.type === 'dine_in') {
+      toast.success(t('order.prebillPrinted'))
+      return
+    }
+    // A café counter order without a table: the customer pays when leaving, so the order waits in the parked list.
+    const parked = await api.call('orders.park', { orderId: order.id })
+    toast.success(t(parked.ok ? 'order.prebillParked' : 'order.prebillPrinted'))
+    if (parked.ok) navigate('/home')
   }
   const park = async () => {
     if (!order) return
@@ -191,7 +199,7 @@ function OrderPad({ orderId, order, setOrder }: { orderId: string | null; order:
       counterType={counterType}
       {...(orderId === null && !order && businessType === 'cafe' ? { onCounterType: setCounterType } : {})}
       kitchen={kitchen}
-      canPrebill={order?.type === 'dine_in'}
+      canPrebill={order?.type === 'dine_in' || (order !== null && businessType === 'cafe')}
       canSplit={order?.type === 'dine_in'}
       busy={busy}
       onLine={(line) => setDialog({ kind: 'line', line })}
